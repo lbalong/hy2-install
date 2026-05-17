@@ -1,33 +1,30 @@
 #!/bin/bash
-# Hysteria2 一键安装脚本 - 自动输出节点分享链接
+# Hysteria2 安全精简版 - 专为 Oracle VPS 优化
 
 set -e
 
-echo "=== Hysteria2 一键安装脚本启动 ==="
+echo "=== Hysteria2 安全安装脚本 (Oracle 优化版) ==="
 
-# 更新系统并安装依赖
-apt update && apt install -y curl wget openssl net-tools ufw
+# 1. 更新系统
+apt update && apt install -y curl wget openssl net-tools
 
-# 自动获取公网IP
-IP=$(curl -fsSL https://api.ipify.org 2>/dev/null || curl -fsSL https://ifconfig.me 2>/dev/null)
-echo "检测到本机IP: $IP"
+# 2. 获取 IP
+IP=$(curl -fsSL https://api.ipify.org || echo "IP获取失败")
+echo "VPS IP: $IP"
 
-# 安装 Hysteria2 官方版
+# 3. 安装 Hysteria2 官方版
 bash <(curl -fsSL https://get.hy2.sh/)
 
-# 生成自签名证书
+# 4. 自签名证书
 CERT_DIR="/etc/hysteria/certs"
 mkdir -p $CERT_DIR
 cd $CERT_DIR
+openssl req -x509 -nodes -newkey rsa:2048 -keyout server.key -out server.crt -days 3650 -subj "/CN=$IP" 2>/dev/null
 
-openssl genrsa -out server.key 2048
-openssl req -new -key server.key -subj "/CN=$IP" -out server.csr
-openssl x509 -req -days 3650 -in server.csr -signkey server.key -out server.crt
+# 5. 强随机密码
+PASSWORD=$(openssl rand -hex 24)
 
-# 生成随机强密码
-PASSWORD=$(openssl rand -hex 20)
-
-# 创建配置（固定443端口）
+# 6. 配置（443端口 + 伪装）
 cat > /etc/hysteria/config.yaml <<EOF
 listen: :443
 
@@ -45,39 +42,30 @@ masquerade:
     url: https://www.bing.com
     rewriteHost: true
 
-bandwidth:
-  up: 1gbps
-  down: 1gbps
-
 disableUDP: false
 EOF
 
-# 防火墙配置
-ufw allow 443/tcp 2>/dev/null || true
-ufw allow 443/udp 2>/dev/null || true
-ufw --force enable 2>/dev/null || true
+# 7. 仅使用 ufw（温和方式）
+ufw --force reset >/dev/null 2>&1 || true
+ufw allow 22/tcp
+ufw allow 443/tcp
+ufw allow 443/udp
+ufw --force enable >/dev/null 2>&1 || true
 
-iptables -I INPUT -p udp --dport 443 -j ACCEPT 2>/dev/null || true
-
-# 启动服务
+# 8. 启动服务
 systemctl enable --now hysteria-server
 systemctl restart hysteria-server
 
-# ==================== 输出节点链接 ====================
+# 9. 输出节点链接
 echo "============================================"
-echo "✅ Hysteria2 安装成功！"
+echo "✅ 安装完成！"
 echo "服务器地址: $IP:443"
 echo "密码: $PASSWORD"
 echo ""
-echo "📋 一键导入节点链接（推荐）："
-echo "hysteria2://$PASSWORD@$IP:443/?insecure=1"
+echo "📋 一键导入节点链接："
+echo "hysteria2://$PASSWORD@$IP:443/?insecure=1&masquerade=www.bing.com"
 echo ""
-echo "🔗 备用短链接："
-echo "hy2://$PASSWORD@$IP:443/?insecure=1"
-echo "============================================"
-echo "客户端使用提示："
-echo "• 必须开启【忽略证书验证 / Allow Insecure】"
-echo "• 直接复制上面链接到客户端即可导入"
+echo "⚠️ 客户端必须开启【忽略证书验证】"
 echo "============================================"
 
-echo "日志查看: journalctl -u hysteria-server -f"
+echo "状态检查命令: systemctl status hysteria-server"
