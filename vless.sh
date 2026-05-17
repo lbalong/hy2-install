@@ -7,20 +7,55 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================="
-echo "    VLESS + TLS + Vision 域名正规证书脚本"
+echo "    VLESS + TLS + Vision 域名证书智能校验版"
 echo "=========================================="
 
 # 1. 获取 VPS 本机公网 IP
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid)
 
+if [ -z "$IP" ]; then
+  echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
+  exit 1
+fi
+
 # 2. 用户输入基本信息
 read -p "👉 请输入已解析到本机的完整域名 (例如 sg.099889.xyz): " DOMAIN
 if [ -z "$DOMAIN" ]; then echo "❌ 错误：域名不能为空！"; exit 1; fi
 
+# 🌟 核心升级：智能域名 IP 自动对齐校验
+echo "🔍 正在校验域名 DNS 解析状态..."
+# 利用系统原生的 getent 离线抓取域名 A 记录 IP
+DOMAIN_IP=$(getent ahosts "$DOMAIN" | head -n 1 | awk '{print $1}')
+
+if [ -z "$DOMAIN_IP" ] || [[ ! "$DOMAIN_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "=========================================="
+    echo "❌ 致命错误：无法解析该域名！"
+    echo "   请检查：1. 域名是否拼写错误？"
+    echo "           2. DNS 服务商处是否添加了 A 记录？"
+    echo "           3. CF 的小云朵（CDN Proxy）是否开启？(建议先关闭保持纯 DNS 解析)"
+    echo "=========================================="
+    exit 1
+fi
+
+if [ "$DOMAIN_IP" != "$IP" ]; then
+    echo "=========================================="
+    echo "⚠️  核心警告：域名解析 IP 与当前 VPS 公网 IP 不匹配！"
+    echo "   - 当前 VPS 本机公网 IP: $IP"
+    echo "   - 你的域名当前解析到的 IP: $DOMAIN_IP"
+    echo "=========================================="
+    read -p "👉 是否确认解析已改，并强行继续安装？(y/N): " FORCE_INSTALL
+    if [[ ! "$FORCE_INSTALL" =~ ^[Yy]$ ]]; then
+        echo "❌ 已安全终止安装。请先去 DNS 控制台将 A 记录精准指向 $IP"
+        exit 1
+    fi
+else
+    echo "✅ 完美对齐！域名已精准指向当前 VPS ($IP)，通过安全验证。"
+fi
+
 DEFAULT_PORT=$(shuf -i 10000-65000 -n 1)
 echo "------------------------------------------"
-echo "💡 提示：请输入你网页后台放行的固定 TCP 端口（建议不要用 443，防止被其他网页服务占用）。"
+echo "💡 提示：请输入网页后台放行的固定 TCP 端口（建议不要用 443）。"
 read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT
 if [ -z "$PORT" ]; then PORT=$DEFAULT_PORT; fi
 
@@ -61,7 +96,7 @@ curl https://get.acme.sh | sh -s email=$EMAIL
     --key-file /usr/local/etc/xray/server.key \
     --fullchain-file /usr/local/etc/xray/server.crt
 
-# 7. 写入标准的 VLESS + TLS + XTLS Vision 配置文件 (无公钥污染)
+# 7. 写入标准的 VLESS + TLS + XTLS Vision 配置文件
 cat <<EOF > /usr/local/etc/xray/config.json
 {
   "log": {
@@ -113,12 +148,12 @@ sleep 3
 echo "=========================================="
 echo " 🎉 VLESS + TLS 域名满血版部署成功！"
 echo "=========================================="
-echo "⚠️  谷歌云/甲骨文网页后台放行提示 ⚠️"
-echo " 1. IP 协议: TCP, 目标端口: 80 (用于证书自动续签)"
-echo " 2. IP 协议: TCP, 目标端口: $PORT (你的节点通信端口)"
+echo "⚠️  云面板后台防火墙放行提示 ⚠️"
+echo " 1. TCP 协议: 80 端口 (用于证书自动续签，必开)"
+echo " 2. TCP 协议: $PORT 端口 (你的节点通信端口，必开)"
 echo "=========================================="
-echo "👇 你的通用一键导入链接 (完全没有公钥和短ID，纯净无比)："
+echo "👇 你的全平台通用导入链接："
 echo ""
-echo "vless://$UUID@$DOMAIN:$PORT?security=tls&flow=xtls-rprx-vision#Google_VLESS_TLS_$PORT"
+echo "vless://$UUID@$DOMAIN:$PORT?security=tls&flow=xtls-rprx-vision#VLESS_Vision_${DOMAIN}"
 echo ""
 echo "=========================================="
