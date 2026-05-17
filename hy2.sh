@@ -1,64 +1,95 @@
 #!/bin/bash
-# Hysteria2 Oracle 专用安全版 - 已修复 ufw 问题
 
-set -e
+# 检查是否为 Root 用户
+if [ "$EUID" -ne 0 ]; then
+  echo "错误：请使用 root 用户运行此脚本！"
+  exit 1
+fi
 
-echo "=== Hysteria2 安全安装脚本 (Oracle ARM64 优化版) ==="
+# 获取系统的公网 IP
+IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
+if [ -z "$IP" ]; then
+  echo "错误：无法获取服务器公网 IP，请检查网络连接。"
+  exit 1
+fi
 
-# 安装依赖
-apt update && apt install -y curl wget openssl net-tools ufw
+# 随机生成 10000-65000 之间的 UDP 端口
+PORT=$(shuf -i 10000-65000 -n 1)
+# 随机生成 16 位密码
+PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
-IP=$(curl -fsSL https://api.ipify.org)
-echo "VPS IP: $IP"
+echo "=========================================="
+echo " 开始安装 Hysteria 2..."
+echo "=========================================="
 
-# 安装 Hysteria2
-bash <(curl -fsSL https://get.hy2.sh/)
+# 安装必要依赖
+echo "正在安装基础依赖..."
+if command -v apt-get >/dev/null; then
+  apt-get update && apt-get install -y curl openssl wget
+elif command -v yum >/dev/null; then
+  yum makecache && yum install -y curl openssl wget
+fi
 
-# 自签名证书
-CERT_DIR="/etc/hysteria/certs"
-mkdir -p $CERT_DIR
-cd $CERT_DIR
-openssl req -x509 -nodes -newkey rsa:2048 -keyout server.key -out server.crt -days 3650 -subj "/CN=$IP" 2>/dev/null
+# 调用官方脚本安装 Hysteria 2
+bash <(curl -fsSL https://get.hy2.sh)
 
-# 随机强密码
-PASSWORD=$(openssl rand -hex 24)
+# 创建配置目录
+mkdir -p /etc/hysteria
 
-# 配置
-cat > /etc/hysteria/config.yaml <<EOF
-listen: :443
+# 生成自签名证书（有效期 10 年，伪装 SNI 为 www.bing.com）
+echo "正在生成自签名 TLS 证书..."
+openssl req -x509 -nodes -newkey rsa:2048 \
+  -keyout /etc/hysteria/server.key \
+  -out /etc/hysteria/server.crt \
+  -days 3650 \
+  -subj "/CN=www.bing.com"
 
+# 写入 Hysteria 2 服务端配置文件
+cat <<EOF > /etc/hysteria/config.yaml
+listen: :$PORT
 tls:
-  cert: $CERT_DIR/server.crt
-  key: $CERT_DIR/server.key
-
+  cert: /etc/hysteria/server.crt
+  key: /etc/hysteria/server.key
 auth:
   type: password
   password: $PASSWORD
-
-masquerade:
-  type: proxy
-  proxy:
-    url: https://www.bing.com
-    rewriteHost: true
-
-disableUDP: false
 EOF
 
-# 防火墙（兼容处理）
-ufw allow 22/tcp >/dev/null 2>&1 || true
-ufw allow 443/tcp >/dev/null 2>&1 || true
-ufw allow 443/udp >/dev/null 2>&1 || true
-ufw --force enable >/dev/null 2>&1 || true
+# 放行本地防火墙（针对 Oracle Linux / Ubuntu 默认规则调整）
+echo "正在配置本地防火墙放行 UDP 端口: $PORT..."
+if command -v ufw > /dev/null; then
+    ufw allow $PORT/udp
+fi
+if command -v iptables > /dev/null; then
+    iptables -I INPUT -p udp --dport $PORT -j ACCEPT
+    # 尝试保存 iptables 规则
+    if command -v iptables-save > /dev/null; then
+        iptables-save > /etc/iptables.rules 2>/dev/null
+    fi
+fi
 
-# 启动
-systemctl enable --now hysteria-server
+# 配置并启动 Hysteria 2 服务
+systemctl daemon-reload
+systemctl enable hysteria-server
 systemctl restart hysteria-server
 
-echo "============================================"
-echo "✅ 安装完成！"
-echo "服务器地址: $IP:443"
-echo "密码: $PASSWORD"
-echo ""
-echo "📋 一键导入链接："
-echo "hysteria2://$PASSWORD@$IP:443/?insecure=1"
-echo "============================================"
+# 验证运行状态
+if systemctl is-active --quiet hysteria-server; then
+    echo "=========================================="
+    echo " 🎉 Hysteria 2 安装并启动成功！"
+    echo "=========================================="
+    echo "⚠️  甲骨文云关键提示 ⚠️"
+    echo "请务必登录「甲骨文云控制台」，进入你实例的「安全列表 (Security Lists)」"
+    echo "或「网络安全组 (NSG)」，添加添加入站规则："
+    echo " - IP 协议: UDP"
+    echo " - 源 CIDR: 0.0.0.0/0"
+    echo " - 目标端口范围: $PORT"
+    echo "=========================================="
+    echo "你的节点链接 (直接复制到 v2rayN、Nekobox、Clash Meta 等客户端):"
+    echo ""
+    echo "hy2://$PASSWORD@$IP:$PORT/?insecure=1&sni=www.bing.com#Oracle_Hy2_$PORT"
+    echo ""
+    echo "=========================================="
+else
+    echo "❌ Hysteria 2 启动失败，请运行 'journalctl -u hysteria-server' 查看错误日志。"
+fi
