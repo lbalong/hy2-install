@@ -19,10 +19,18 @@ PORT=$(shuf -i 10000-65000 -n 1)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================="
-echo " 开始安装 Hysteria 2..."
+echo " 开始安装并优化 Hysteria 2..."
 echo "=========================================="
 
-# 安装必要依赖
+# 1. 速度优化：调优 Linux 内核 UDP 缓冲区
+echo "正在注入内核加速参数（优化 UDP 缓冲区）..."
+cat <<EOF > /etc/sysctl.d/99-hysteria2-tuning.conf
+net.core.rmem_max=8388608
+net.core.wmem_max=8388608
+EOF
+sysctl --system >/dev/null 2>&1
+
+# 2. 安装必要依赖
 echo "正在安装基础依赖..."
 if command -v apt-get >/dev/null; then
   apt-get update && apt-get install -y curl openssl wget
@@ -30,13 +38,11 @@ elif command -v yum >/dev/null; then
   yum makecache && yum install -y curl openssl wget
 fi
 
-# 调用官方脚本安装 Hysteria 2
+# 3. 调用官方脚本安装 Hysteria 2
 bash <(curl -fsSL https://get.hy2.sh)
 
-# 创建配置目录
+# 4. 创建配置目录并生成自签名证书
 mkdir -p /etc/hysteria
-
-# 生成自签名证书（有效期 10 年，伪装 SNI 为 www.bing.com）
 echo "正在生成自签名 TLS 证书..."
 openssl req -x509 -nodes -newkey rsa:2048 \
   -keyout /etc/hysteria/server.key \
@@ -44,7 +50,7 @@ openssl req -x509 -nodes -newkey rsa:2048 \
   -days 3650 \
   -subj "/CN=www.bing.com"
 
-# 写入 Hysteria 2 服务端配置文件
+# 5. 写入 Hysteria 2 服务端配置文件
 cat <<EOF > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -55,39 +61,44 @@ auth:
   password: $PASSWORD
 EOF
 
-# 放行本地防火墙（针对 Oracle Linux / Ubuntu 默认规则调整）
+# 6. 【核心修复】修正目录及文件所有权，防止 Permission Denied
+echo "正在优化文件权限..."
+if id "hysteria" &>/dev/null; then
+    chown -R hysteria:hysteria /etc/hysteria
+fi
+
+# 7. 放行本地防火墙（针对 Oracle Linux / Ubuntu 默认规则调整）
 echo "正在配置本地防火墙放行 UDP 端口: $PORT..."
 if command -v ufw > /dev/null; then
     ufw allow $PORT/udp
 fi
 if command -v iptables > /dev/null; then
     iptables -I INPUT -p udp --dport $PORT -j ACCEPT
-    # 尝试保存 iptables 规则
     if command -v iptables-save > /dev/null; then
         iptables-save > /etc/iptables.rules 2>/dev/null
     fi
 fi
 
-# 配置并启动 Hysteria 2 服务
+# 8. 配置并启动 Hysteria 2 服务
 systemctl daemon-reload
 systemctl enable hysteria-server
 systemctl restart hysteria-server
 
-# 验证运行状态
+# 9. 验证运行状态并输出
 if systemctl is-active --quiet hysteria-server; then
     echo "=========================================="
-    echo " 🎉 Hysteria 2 安装并启动成功！"
+    echo " 🎉 Hysteria 2 安装、权限修复且加速成功！"
     echo "=========================================="
     echo "⚠️  甲骨文云关键提示 ⚠️"
     echo "请务必登录「甲骨文云控制台」，进入你实例的「安全列表 (Security Lists)」"
-    echo "或「网络安全组 (NSG)」，添加添加入站规则："
+    echo "添加添加入站规则："
     echo " - IP 协议: UDP"
     echo " - 源 CIDR: 0.0.0.0/0"
     echo " - 目标端口范围: $PORT"
     echo "=========================================="
-    echo "你的节点链接 (直接复制到 v2rayN、Nekobox、Clash Meta 等客户端):"
+    echo "你的节点链接 (已集成跳过证书验证):"
     echo ""
-    echo "hy2://$PASSWORD@$IP:$PORT/?insecure=1&sni=www.bing.com#Oracle_Hy2_$PORT"
+    echo "hy2://$PASSWORD@$IP:$PORT/?insecure=1&sni=www.bing.com#Oracle_Hy2_Speed_$PORT"
     echo ""
     echo "=========================================="
 else
