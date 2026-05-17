@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================="
-echo "    VLESS + Reality 速度狂飙特调脚本 V2.0"
+echo "    VLESS + Reality 速度狂飙特调脚本 V2.1"
 echo "=========================================="
 
 # 1. 获取 VPS 本机公网 IP
@@ -19,7 +19,7 @@ fi
 
 # 2. 自定义端口
 DEFAULT_PORT=$(shuf -i 10000-65000 -n 1)
-echo "💡 提示：如果填 443 报错，说明 443 TCP 端口已被其他服务（如 Nginx/面板）霸占，请换用其他高位端口。"
+echo "💡 提示：如果填 443 报错，说明 443 TCP 端口已被其他服务霸占，请换用其他高位端口。"
 read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT
 if [ -z "$PORT" ]; then
     PORT=$DEFAULT_PORT
@@ -117,7 +117,7 @@ cat <<EOF > /usr/local/etc/xray/config.json
 }
 EOF
 
-# 🌟 核心修复：强破权限黑幕，确保 nobody 用户有权读取配置
+# 强破权限黑幕
 echo "⚙️ 正在无缝修复文件权限..."
 chmod 644 /usr/local/etc/xray/config.json
 chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null
@@ -127,7 +127,16 @@ systemctl daemon-reload
 systemctl enable xray
 systemctl restart xray
 
-sleep 2
+echo "⏳ 正在等待系统分配网络栈并验证状态..."
+# 改进：异步多轮检测，给老旧 VPS 充足的缓冲时间
+IS_ACTIVE=0
+for i in {1..4}; do
+    sleep 1.5
+    if systemctl is-active --quiet xray || pgrep -x "xray" >/dev/null; then
+        IS_ACTIVE=1
+        break
+    fi
+done
 
 # 9. 输出结果
 echo "=========================================="
@@ -144,10 +153,10 @@ echo "vless://$UUID@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$P
 echo ""
 echo "=========================================="
 
-if systemctl is-active --quiet xray; then
-    echo " 🎉 Xray 服务已成功在端口 $PORT 启动！"
+if [ $IS_ACTIVE -eq 1 ]; then
+    echo " 🎉 Xray 速度狂飙服务已成功在 TCP 端口 $PORT 启动！"
 else
-    echo "❌ 警告：服务虽未成功启动（通常由于端口冲突），但配置与链接已如上生成。"
-    echo "💡 排查建议：请更换端口重新运行脚本，或运行 '/usr/local/bin/xray test -c /usr/local/etc/xray/config.json' 查看原因。"
+    echo "❌ 警告：脚本未检测到 Xray 活跃进程，可能是端口冲突或系统初始化过慢。"
+    echo "💡 排查建议：请运行 '/usr/local/bin/xray test -c /usr/local/etc/xray/config.json' 自检。"
 fi
 echo "=========================================="
