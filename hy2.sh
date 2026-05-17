@@ -7,19 +7,35 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================="
-echo "    Hysteria 2 自动化双模一键脚本 (稳定骨架版)"
+echo "    Hysteria 2 自动化双模一键脚本 (端口自定义版)"
 echo "=========================================="
 echo " 1. 安装 纯 IP 自签名版 (100% 成功 / 适合不折腾)"
-echo " 2. 安装 域名正规证书版 (自动申请证书 / 需提前解析)"
+echo " 2. 安装 域名正规证书版 (借鉴成功规则 / 完美闭环)"
 echo "=========================================="
 read -p "请选择安装模式 [1-2]: " CHOICE
 
-# 1. 提取公共核心：获取 IP、生成随机端口和强密码
+# 提取公共核心：获取 IP 和 16 位强密码
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
-PORT=$(shuf -i 10000-65000 -n 1)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
-# 2. 提取公共核心：速度优化（调优 Linux 内核 UDP 缓冲区）
+# 端口控制逻辑：根据模式决定是否允许手动输入
+if [ "$CHOICE" -eq 1 ]; then
+    # IP版继续保持随机高位端口
+    PORT=$(shuf -i 10000-65000 -n 1)
+elif [ "$CHOICE" -eq 2 ]; then
+    # 域名版允许老哥手动输入以前成功的固定端口
+    echo "💡 提示：请输入你另一台成功 VPS 入站规则里开好门的那个端口。"
+    read -p "👉 请输入节点监听端口 (例如 443 或 34433): " PORT
+    if [ -z "$PORT" ]; then
+        PORT=$(shuf -i 10000-65000 -n 1)
+        echo "⚠️ 未输入端口，已自动生成随机端口: $PORT"
+    fi
+else
+    echo "无效选项，退出脚本。"
+    exit 1
+fi
+
+# 速度优化（调优 Linux 内核 UDP 缓冲区）
 echo "正在注入内核加速参数（优化 UDP 缓冲区）..."
 cat <<EOF > /etc/sysctl.d/99-hysteria2-tuning.conf
 net.core.rmem_max=8388608
@@ -27,7 +43,7 @@ net.core.wmem_max=8388608
 EOF
 sysctl --system >/dev/null 2>&1
 
-# 3. 提取公共核心：防火墙优化（彻底清空并放行本地防火墙，防止 Ubuntu 规则卡死）
+# 防火墙优化（彻底清空并放行本地防火墙，防止 Ubuntu 规则卡死）
 echo "正在清空本地防火墙残留规则..."
 if command -v ufw > /dev/null; then
     ufw disable >/dev/null 2>&1
@@ -38,7 +54,7 @@ iptables -P INPUT ACCEPT
 iptables -P FORWARD ACCEPT
 iptables -P OUTPUT ACCEPT
 
-# 4. 提取公共核心：安装必要依赖
+# 安装必要依赖
 echo "正在安装基础依赖..."
 if command -v apt-get >/dev/null; then
   apt-get update && apt-get install -y curl openssl wget iptables
@@ -46,14 +62,14 @@ elif command -v yum >/dev/null; then
   yum makecache && yum install -y curl openssl wget iptables
 fi
 
-# 5. 提取公共核心：调用官方脚本安装 Hysteria 2
+# 调用官方脚本安装 Hysteria 2
 echo "正在调用官方脚本安装 Hysteria 2 核心..."
 bash <(curl -fsSL https://get.hy2.sh)
 
 # 创建配置目录
 mkdir -p /etc/hysteria
 
-# 6. 根据用户选择，切入不同的证书与配置流
+# 根据用户选择，切入不同的证书与配置流
 if [ "$CHOICE" -eq 1 ]; then
     # 【模式 1：纯 IP 自签名流】
     echo "正在生成 10 年期自签名 TLS 证书..."
@@ -82,7 +98,7 @@ elif [ "$CHOICE" -eq 2 ]; then
     read -p "👉 请输入邮箱 (直接回车默认 admin@$DOMAIN): " EMAIL
     if [ -z "$EMAIL" ]; then EMAIL="admin@$DOMAIN"; fi
 
-    # 写入纯正规域名配置文件 (去除了多余的 masquerade 干扰)
+    # 写入纯正规域名配置文件 (不带任何反代干扰)
     cat <<EOF > /etc/hysteria/config.yaml
 listen: :$PORT
 acme:
@@ -93,25 +109,22 @@ auth:
   type: password
   password: $PASSWORD
 EOF
-else
-    echo "无效选项，退出脚本。"
-    exit 1
 fi
 
-# 7. 提取公共核心：权限修复
+# 权限修复
 echo "正在优化文件权限..."
 if id "hysteria" &>/dev/null; then
     chown -R hysteria:hysteria /etc/hysteria
 fi
 
-# 8. 提取公共核心：配置并启动 Hysteria 2 服务
+# 配置并启动 Hysteria 2 服务
 systemctl daemon-reload
 systemctl enable hysteria-server
 systemctl restart hysteria-server
 
 sleep 3
 
-# 9. 根据模式精准输出结果链接
+# 根据模式精准输出结果链接
 if systemctl is-active --quiet hysteria-server; then
     echo "=========================================="
     echo " 🎉 Hysteria 2 服务部署与内核加速成功！"
@@ -126,10 +139,10 @@ if systemctl is-active --quiet hysteria-server; then
         echo "hy2://$PASSWORD@$IP:$PORT/?insecure=1&sni=www.bing.com#Oracle_Hy2_IP_$PORT"
     else
         echo "⚠️  甲骨文云网页后台放行提示 ⚠️"
-        echo " 1. IP 协议: TCP, 目标端口: 80  (用于 ACME 自动续签证书，必开)"
-        echo " 2. IP 协议: UDP, 目标端口: $PORT (节点核心通信端口，必开)"
+        echo " 1. IP 协议: TCP, 目标端口: 80  (用于自动续签证书，务必保持开启)"
+        echo " 2. IP 协议: UDP, 目标端口: $PORT (你借鉴并指定的固定通信端口)"
         echo "=========================================="
-        echo "你的节点链接 (域名证书版 - 已强制捆绑 SNI 传参):"
+        echo "你的节点链接 (域名证书版 - 强注 SNI 参数):"
         echo ""
         echo "hy2://$PASSWORD@$DOMAIN:$PORT/?sni=$DOMAIN#Oracle_Hy2_Domain_$PORT"
     fi
