@@ -22,7 +22,6 @@ clear_local_firewall() {
     if command -v ufw > /dev/null; then
         ufw disable >/dev/null 2>&1
     fi
-    # 彻底放行本地 iptables
     iptables -F
     iptables -X
     iptables -P INPUT ACCEPT
@@ -67,7 +66,6 @@ install_ip_version() {
     clear_local_firewall
     install_dependencies
     
-    # 安装官方核心
     bash <(curl -fsSL https://get.hy2.sh)
     
     mkdir -p /etc/hysteria
@@ -99,7 +97,7 @@ EOF
         echo "=========================================="
         echo "⚠️  甲骨文云提示：请去网页后台放行 UDP 端口: $PORT"
         echo "=========================================="
-        echo "你的节点链接（已带不安全跳过提示）："
+        echo "你的节点链接："
         echo "hy2://$PASSWORD@$IP:$PORT/?insecure=1&sni=www.bing.com#Oracle_Hy2_IP_$PORT"
         echo "=========================================="
     else
@@ -107,10 +105,10 @@ EOF
     fi
 }
 
-# 模式 2：安装域名正规证书版
+# 模式 2：安装域名正规证书版（已微调：采用高位端口绕过高墙阻断）
 install_domain_version() {
     echo "=========================================="
-    echo " 开始安装：Hysteria 2 (域名正规证书版)"
+    echo " 开始安装：Hysteria 2 (域名正规证书 + 高位端口版)"
     echo "=========================================="
     
     read -p "👉 请输入已解析到本机的完整域名: " DOMAIN
@@ -119,18 +117,19 @@ install_domain_version() {
     read -p "👉 请输入邮箱 (直接回车默认 admin@$DOMAIN): " EMAIL
     if [ -z "$EMAIL" ]; then EMAIL="admin@$DOMAIN"; fi
     
+    # 核心微调：域名版同样采用随机高位端口，彻底解决运营商 UDP 443 阻断问题
+    PORT=$(shuf -i 10000-65000 -n 1)
     PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
     
     sysctl_optimize
     clear_local_firewall
     install_dependencies
     
-    # 安装官方核心
     bash <(curl -fsSL https://get.hy2.sh)
     
     mkdir -p /etc/hysteria
     cat <<EOF > /etc/hysteria/config.yaml
-listen: :443
+listen: :$PORT
 acme:
   domains:
     - $DOMAIN
@@ -151,18 +150,21 @@ EOF
     systemctl enable hysteria-server
     systemctl restart hysteria-server
     
-    sleep 3
+    sleep 5
     if systemctl is-active --quiet hysteria-server; then
         echo "=========================================="
-        echo " 🎉 Hysteria 2 域名白盒版安装成功！"
+        echo " 🎉 Hysteria 2 域名白盒版（高位端口抗阻断）安装成功！"
         echo "=========================================="
-        echo "⚠️  甲骨文云提示：请去网页后台放行 TCP 80, TCP 443, UDP 443"
+        echo "⚠️  甲骨文云后台放行提示："
+        echo " 请务必去网页后台增加入站规则："
+        echo " 1. IP 协议: TCP, 目标端口: 80  (用于自动续签证书，不可缺少)"
+        echo " 2. IP 协议: UDP, 目标端口: $PORT (节点核心通信端口)"
         echo "=========================================="
-        echo "你的终极节点链接："
-        echo "hy2://$PASSWORD@$DOMAIN:443#Oracle_Hy2_Domain"
+        echo "你的终极节点链接（无需跳过证书验证）："
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT#Oracle_Hy2_Domain_$PORT"
         echo "=========================================="
     else
-        echo "❌ 启动失败，请确保 CF 解析已生效（仅DNS模式）并检查日志。"
+        echo "❌ 启动失败，请确保 CF 解析已生效（仅DNS模式）并运行 'journalctl -u hysteria-server' 查看日志。"
     fi
 }
 
@@ -171,7 +173,7 @@ echo "=========================================="
 echo "      Hysteria 2 自动化双模安装脚本"
 echo "=========================================="
 echo " 1. 安装 纯 IP 自签名版（随机高位端口）"
-echo " 2. 安装 域名正规证书版（443端口 + 网页伪装）"
+echo " 2. 安装 域名正规证书版（随机高位端口 + 网页伪装 + 绕过阻断）"
 echo "=========================================="
 read -p "请选择安装模式 [1-2]: " CHOICE
 
