@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================="
-echo " VLESS + Reality 终极解脱版 (0字差错，闭眼通车)"
+echo " VLESS + Reality 终极解脱版 (完美对齐无填充)"
 echo "=========================================="
 
 # 1. 获取 VPS 本机公网 IP
@@ -54,12 +54,12 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 echo "⏳ 正在配置全纯净网络核心..."
 sleep 2
 
-# 6. 🌟 降维打击：UUID 和短 ID 保持动态独享，公私钥采用预验证的满血密码对，彻底解决天窗 Bug
+# 6. 🌟 终极矫正：移除末尾的 = 号，严格对齐 Xray 官方 43 位 Raw Base64 规范
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 
-PRIVATE_KEY="OHiRUZqq1Yfo5JA6FataI9RzKTE7WPrUoeteBLUpTWc="
-PUBLIC_KEY="8mYkd-02gEB5H0P_d0EcrhXt009P4jBKxba5A1AbE0I="
+PRIVATE_KEY="OHiRUZqq1Yfo5JA6FataI9RzKTE7WPrUoeteBLUpTWc"
+PUBLIC_KEY="8mYkd-02gEB5H0P_d0EcrhXt009P4jBKxba5A1AbE0I"
 
 # 7. 写入配置
 DEST_SERVER="www.microsoft.com"
@@ -118,7 +118,7 @@ systemctl daemon-reload && systemctl enable xray && systemctl restart xray
 
 sleep 2
 
-# 9. 直接端上桌的完美输出 (这次 &pbk= 后面绝对有最纯正的公钥！)
+# 9. 直接端上桌的完美输出 (注意：一键链接里 pbk= 后面已经带上了最纯正的 43 位公钥)
 echo "=========================================="
 echo " 🎉 VLESS + Reality 纯净版已完美写入启动！"
 echo "=========================================="
