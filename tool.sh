@@ -8,20 +8,16 @@ fi
 
 # 注入系统发行版本信息
 . /etc/openwrt_release
-
-# 动态生成纯净标题：优先使用系统全称描述，若无则拼装 ID 和版本号
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
-# 同步软件源索引
-update_source() {
-    echo "🔄 正在同步本地软件包索引 (apk update)..."
-    apk update
-}
-
-# 强制刷新 LuCI 网页缓存并重载服务
+# 核心优化：彻底清理 25.12 JS 后台的幽灵缓存
 refresh_luci() {
-    echo "🔄 正在清理系统网页缓存并重载界面..."
+    echo "🔄 正在深度清理系统网页缓存..."
     rm -rf /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null
+    
+    # 25.12 架构最关键一步：必须重启 rpcd 以迫使其重载全新的 APK 菜单路由与权限
+    echo "🔄 正在重载系统 RPC 守护进程与网页服务..."
+    /etc/init.d/rpcd restart 2>/dev/null
     /etc/init.d/uhttpd restart 2>/dev/null
     /etc/init.d/nginx restart 2>/dev/null
 }
@@ -29,50 +25,51 @@ refresh_luci() {
 # ==================== PassWall 模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
-    update_source
+    echo "🔄 正在同步本地软件源索引 (apk update)..."
+    apk update
     echo "-------------------------------------------------"
-    echo "🔍 正在读取 PassWall 组件版本信息..."
+    echo "🔍 正在读取当前系统的 PassWall 版本状态..."
 
-    # 1. 提取当前系统已安装的版本号
-    CURRENT_VER=$(apk info luci-app-passwall 2>/dev/null | grep -E '^luci-app-passwall' | head -n 1 | sed 's/luci-app-passwall-//' | awk '{print $1}')
+    # 1. 提取当前系统实际已安装的版本号
+    CURRENT_VER=$(apk info -v luci-app-passwall 2>/dev/null | head -n 1 | sed 's/^luci-app-passwall-//')
     if [ -z "$CURRENT_VER" ]; then
-        CURRENT_VER="未安装"
+        CURRENT_VER="未安装 (系统将执行首次完整初装)"
     fi
 
-    # 2. 提取当前软件源中收录的最新版本号
-    LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | grep -E '^luci-app-passwall' | head -n 1 | sed 's/luci-app-passwall-//' | awk '{print $1}')
+    # 2. 提取当前系统官方软件源中收录的最新可用版本号
+    LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/^luci-app-passwall-//')
     if [ -z "$LATEST_VER" ]; then
-        echo "❌ 错误：在当前软件源中未检测到 luci-app-passwall，请检查网络或更换镜像源。"
+        echo "❌ 错误：在当前官方软件源中未检测到 luci-app-passwall 组件，请检查网络。"
         return 1
     fi
 
-    # 3. 打印版本对比看板
+    # 3. 打印版本比对看板
     echo "📊 PassWall 版本比对："
     echo "   • 当前已安装版本: ${CURRENT_VER}"
     echo "   • 软件源最新版本: ${LATEST_VER}"
     echo "-------------------------------------------------"
 
-    # 如果版本一致，给予人性化提示
     if [ "$CURRENT_VER" = "$LATEST_VER" ]; then
-        echo "💡 提示：您当前拥有的已经是源内最新版本。"
+        echo "💡 提示：您当前拥有的已经是该系统源内的最新版本。"
     fi
 
     # 4. Y/N 拦截确认机制
-    printf "❓ 是否确认继续执行安装/升级流程？[y/N]: "
+    printf "❓ 是否确认执行安装/升级流程？[y/N]: "
     read confirm
     case "$confirm" in
         [yY][eE][sS]|[yY])
-            echo "🚀 开始部署 PassWall 组件..."
+            echo "🚀 正在通过 APK 核心部署 PassWall 及其全部周边依赖..."
             apk add luci-app-passwall luci-i18n-passwall-zh-cn
             if [ $? -eq 0 ]; then
                 refresh_luci
-                echo "✅ PassWall 操作成功！原节点配置已完美保留。"
+                echo "✅ PassWall 操作成功！原节点配置与分流规则已完美保留。"
+                echo "💡 提示：由于浏览器本身可能存在强缓存，若菜单仍未出现，请在网页端按 [Ctrl + F5] 强制刷新浏览器。"
             else
                 echo "❌ 操作失败，请检查上方 apk 核心错误输出。"
             fi
             ;;
         *)
-            echo "🛑 操作已取消，正在返回主菜单。"
+            echo "🛑 操作已取消，返回主菜单。"
             ;;
     esac
 }
@@ -88,7 +85,7 @@ uninstall_passwall() {
     
     apk del luci-app-passwall luci-i18n-passwall-zh-cn
     refresh_luci
-    echo "✅ PassWall 卸载指令执行完毕。"
+    echo "✅ PassWall 卸载指令执行完毕，页面已干净抹去。"
 }
 
 # ==================== 主菜单逻辑 ====================
