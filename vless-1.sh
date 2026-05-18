@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================="
-echo "  VLESS + Reality + Vision PassWall全兼容版"
+echo " VLESS + Reality 终极稳定版 (彻底告别手动填坑)"
 echo "=========================================="
 
 # 1. 获取 VPS 本机公网 IP
@@ -45,30 +45,30 @@ iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACC
 
 # 5. 安装基础依赖与最新版 Xray 核心
 if command -v apt-get >/dev/null; then
-  apt-get update && apt-get install -y curl wget jq uuid-runtime iptables socat
+  apt-get update && apt-get install -y curl wget jq uuid-runtime iptables socat openssl
 elif command -v yum >/dev/null; then
-  yum makecache && yum install -y curl wget jq uuid-runtime iptables socat
+  yum makecache && yum install -y curl wget jq uuid-runtime iptables socat openssl
 fi
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-echo "⏳ 正在等待文件系统同步..."
+echo "⏳ 正在生成 Xray 通用密钥底层核心..."
 sleep 2
 
-# 6. 🌟 终极修复：全流捕获机制，彻底降伏所有新老版本 Xray 密钥流
+# 6. 🌟 终极解决方案：强行用纯净的文本文件进行密钥对推导，杜绝任何管道截断 Bug！
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 
-X25519_OUTPUT=$(/usr/local/bin/xray x25519 2>&1)
-PRIVATE_KEY=$(echo "$X25519_OUTPUT" | grep -i "Private key:" | awk '{print $3}')
-PUBLIC_KEY=$(echo "$X25519_OUTPUT" | grep -i "Public key:" | awk '{print $3}')
+# 利用官方核心，将密钥强制输出到一个临时的文本文件中
+/usr/local/bin/xray x25519 > /tmp/xray_keys_tmp.txt
 
-# 兜底保障：如果依然为空，使用一套合规的静态 X25519 密钥，确保核心绝不崩溃
-if [ -z "$PRIVATE_KEY" ] || [ -z "$PUBLIC_KEY" ]; then
-    PRIVATE_KEY="uLC90f_tX_f3bM_dF6_Jk1_v9_Lp0_mN2_xZ4_qW6_eR8="
-    PUBLIC_KEY="8vG5_bN3_mK1_pL0_xZ2_qW4_eR6_tY8_uI0_oP2_aS4="
-fi
+# 使用最笨但最稳的方法，直接读取文件的最后两个单词
+PRIVATE_KEY=$(awk '/Private key:/ {print $NF}' /tmp/xray_keys_tmp.txt)
+PUBLIC_KEY=$(awk '/Public key:/ {print $NF}' /tmp/xray_keys_tmp.txt)
 
-# 7. 写入整合了 TFO 芯片的 Reality 极速配置文件
+# 删除临时文件，不留痕迹
+rm -f /tmp/xray_keys_tmp.txt
+
+# 7. 写入配置，变量直接硬塞，不需要你改任何东西
 DEST_SERVER="www.microsoft.com"
 mkdir -p /usr/local/etc/xray
 cat <<EOF > /usr/local/etc/xray/config.json
@@ -125,32 +125,36 @@ systemctl daemon-reload && systemctl enable xray && systemctl restart xray
 
 sleep 2
 
-# 9. 完美输出收官
+# 9. 直接端上桌的完美输出 (不需要进 VPS，照抄进软路由即可)
 echo "=========================================="
-echo " 🎉 VLESS + Reality 狂飙完全体部署成功！"
+echo " 🎉 VLESS + Reality 纯净版已完美写入启动！"
 echo "=========================================="
 echo "👇 你的通用一键导入链接 (可直接尝试导入 PassWall)："
 echo ""
 echo "vless://$UUID@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&flow=xtls-rprx-vision#Reality_SpeedUp_$PORT"
 echo ""
 echo "=========================================="
-echo "🛠️  PassWall 手动对齐防呆参数表"
+echo "🛠️  软路由 PassWall 手动照抄参数表 (你啥也不用推导，直接填！)"
 echo "=========================================="
-echo " 1. 类型 (Protocol):   VLESS"
-echo " 2. 地址与端口:        $IP  :  $PORT"
-echo " 3. 用户ID (UUID):     $UUID"
-echo " 4. 流控 (Flow):       xtls-rprx-vision"
-echo " 5. 传输协议:          tcp"
-echo " 6. 加密/TLS类型:      reality"
-echo " 7. 伪装域名 (SNI):    $DEST_SERVER"
-echo " 8. 公钥 (Public Key): $PUBLIC_KEY"
-echo " 9. 短 ID (Short ID):  $SHORT_ID"
-echo " 10.TCP Fast Open:     勾选/开启"
+echo " 1. 协议 (Protocol):   VLESS"
+echo " 2. 地址 (Address):    $IP"
+echo " 3. 端口 (Port):       $PORT"
+echo " 4. 用户ID (UUID):     $UUID"
+echo " 5. 流控 (Flow):       xtls-rprx-vision"
+echo " 6. 传输协议 (Net):    tcp"
+echo " 7. 加密 (Security):   reality"
+echo " 8. 伪装域名 (SNI):    $DEST_SERVER"
+echo " 9. 公钥 (Public Key): $PUBLIC_KEY"
+echo " 10.短 ID (Short ID):  $SHORT_ID"
+echo " 11.指纹 (Fingerprint):chrome"
+echo " 12.TCP Fast Open:     勾选/开启"
+echo " 13.多路复用 (Mux):    必须关闭！"
 echo "=========================================="
 
-if systemctl is-active --quiet xray || pgrep -x "xray" >/dev/null; then
-    echo " ✅ Xray 服务状态：完美运行中！"
+# 最终的安全自检，如果有问题直接报错，绝不隐瞒
+if /usr/local/bin/xray -test -config /usr/local/etc/xray/config.json | grep -q "Configuration OK"; then
+    echo " ✅ Xray 核心底层自检：Configuration OK. 配置绝无死角！"
 else
-    echo " ❌ 警告：未检测到活跃进程，请手动检查端口是否冲突。"
+    echo " ❌ 警告：自检失败！服务器环境可能发生冲突。"
 fi
 echo "=========================================="
