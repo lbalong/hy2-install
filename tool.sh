@@ -7,7 +7,7 @@ if [ ! -f /etc/openwrt_release ]; then
 fi
 
 echo "================================================="
-echo "  ImmortalWrt 25.12 专属工具箱 (APK 核心版)"
+echo "  ImmortalWrt 25.12 专属工具箱 (PassWall 纯净版)"
 echo "================================================="
 echo "系统底层包管理器已确认为: apk"
 echo "-------------------------------------------------"
@@ -18,22 +18,17 @@ update_source() {
     apk update
 }
 
-# 重启网页服务刷新后台菜单
-restart_web() {
-    echo "🔄 正在重载网页服务以使其生效..."
-    /etc/init.d/uhttpd restart 2>/dev/null
-    /etc/init.d/nginx restart 2>/dev/null
-}
-
 # ==================== PassWall 模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
     echo "⬇️ 开始安装/升级 PassWall 组件..."
     update_source
-    # apk add 机制会自动判断：未安装则全新安装，已安装则自动无损升级
+    
+    # apk add 会自动判断：未安装则全新安装，已安装则自动向官方源索取最新版进行无损升级
     apk add luci-app-passwall luci-i18n-passwall-zh-cn
     if [ $? -eq 0 ]; then
-        echo "✅ PassWall 部署/升级流程顺利完成！原节点配置已完美保留。"
+        echo "✅ PassWall 部署/升级流程顺利完成！"
+        echo "💡 提示：您的原有节点数据和分流规则已被系统完美保留。"
     else
         echo "❌ PassWall 操作失败，请检查上方 apk 核心报错提示。"
     fi
@@ -42,49 +37,23 @@ install_passwall() {
 uninstall_passwall() {
     echo "-------------------------------------------------"
     echo "🗑️ 正在安全卸载 PassWall 组件..."
+    # apk del 会干净利落地移除网页组件，但绝不会动你的核心节点配置文件
     apk del luci-app-passwall luci-i18n-passwall-zh-cn
     echo "✅ PassWall 卸载指令执行完毕。"
-}
-
-# ==================== iStore 模块 ====================
-install_istore() {
-    echo "-------------------------------------------------"
-    echo "⬇️ 开始安装/升级 iStore 软件中心..."
-    update_source
-    # 直接调用 25.12 官方源内编译好的原生 apk 包
-    apk add luci-app-store
-    if [ $? -eq 0 ]; then
-        restart_web
-        echo "✅ iStore 应用商店部署完毕，请完全刷新软路由网页查看菜单。"
-    else
-        echo "❌ iStore 安装失败，请检查上方 apk 核心报错提示。"
-    fi
-}
-
-uninstall_istore() {
-    echo "-------------------------------------------------"
-    echo "🗑️ 正在安全卸载 iStore 软件中心..."
-    apk del luci-app-store
-    restart_web
-    echo "✅ iStore 卸载指令执行完毕。"
 }
 
 # ==================== 主菜单逻辑 ====================
 echo "💡 请选择需要执行的操作："
 echo "1) 安装 / 升级 PassWall"
-echo "2) 卸载 PassWall"
-echo "3) 安装 / 升级 iStore 商店"
-echo "4) 卸载 iStore 商店"
-echo "5) 退出"
+echo "2) 安全卸载 PassWall 组件"
+echo "3) 退出"
 echo "-------------------------------------------------"
 
-printf "请输入对应数字 [1-5]: "
+printf "请输入对应数字 [1-3]: "
 read choice
 
 case $choice in
     1) install_passwall ;;
     2) uninstall_passwall ;;
-    3) install_istore ;;
-    4) uninstall_istore ;;
     *) echo "操作已取消。"; exit 0 ;;
 esac
