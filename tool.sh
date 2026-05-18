@@ -27,20 +27,37 @@ install_passwall() {
     echo "🌐 正在连线 PassWall GitHub 官方获取最新 Release 矩阵..."
     API_URL="https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall/releases/latest"
     
-    # 动态抓取 GitHub 最新 Release 的 Tag 版本号
-    LATEST_TAG=$(curl -sLk "$API_URL" | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4)
+    # 核心修正：加入伪装浏览器请求头，并将数据安全下载到本地，避免重复请求触发限流
+    curl -sLk -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "$API_URL" > /tmp/gh_release.json
     
-    # 精准提取适合 25.12 APK 架构的主程序与语言包下载直链（排除 .ipk 后缀）
-    LUCI_APK_URL=$(curl -sLk "$API_URL" | grep "browser_download_url" | grep -E "luci-app-passwall_.*\.apk" | grep -v "zh-cn" | head -n 1 | cut -d '"' -f 4)
-    LANG_APK_URL=$(curl -sLk "$API_URL" | grep "browser_download_url" | grep -E "luci-i18n-passwall-zh-cn_.*\.apk" | head -n 1 | cut -d '"' -f 4)
+    # 容错检查：查验是否成功获取到了合法的 JSON 数据
+    if [ ! -s /tmp/gh_release.json ] || grep -q '"message":' /tmp/gh_release.json; then
+        echo "❌ 错误：无法从 GitHub API 获取有效数据。"
+        if grep -q "rate limit" /tmp/gh_release.json; then
+            echo "⚠️ 提示：当前的公共 IP 触发了 GitHub API 的访问频率限制，请稍后再试，或开启代理后运行。"
+        else
+            echo "⚠️ 提示：请确保软路由当前的国际网络畅通，能正常解析并连接 api.github.com。"
+        fi
+        rm -f /tmp/gh_release.json
+        return 1
+    fi
+    
+    # 从本地缓存的 JSON 中提取最新 Release 的 Tag 版本号
+    LATEST_TAG=$(grep '"tag_name":' /tmp/tmp/gh_release.json 2>/dev/null || grep '"tag_name":' /tmp/gh_release.json | head -n 1 | cut -d '"' -f 4)
+    
+    # 精准提取适合 APK 架构的主程序与语言包下载直链
+    LUCI_APK_URL=$(grep "browser_download_url" /tmp/gh_release.json | grep -i "luci-app-passwall" | grep "\.apk" | grep -v -i "zh-cn" | head -n 1 | cut -d '"' -f 4)
+    LANG_APK_URL=$(grep "browser_download_url" /tmp/gh_release.json | grep -i "luci-i18n-passwall-zh-cn" | grep "\.apk" | head -n 1 | cut -d '"' -f 4)
+    
+    # 提取完毕，立刻销毁临时文件
+    rm -f /tmp/gh_release.json
     
     if [ -z "$LUCI_APK_URL" ] || [ -z "$LANG_APK_URL" ]; then
-        echo "❌ 错误：未能从 GitHub 官方 Releases 中解析到 25.12 专属的 .apk 安装包。"
-        echo "💡 提示：网络可能受到干扰，请确保软路由当前的国际网络畅通。"
+        echo "❌ 错误：未能从 GitHub 官方 Releases 中解析到专属的 .apk 安装包。"
         return 1
     fi
 
-    # 获取本地已安装的版本号 (利用 apk list 查验)
+    # 获取本地已安装的版本号
     CURRENT_VER=$(apk list -I luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     if [ -z "$CURRENT_VER" ]; then
         CURRENT_VER="未安装 (系统将自动执行首次完整初装)"
@@ -52,15 +69,15 @@ install_passwall() {
     echo "   • 官方最新版本: ${LATEST_TAG}"
     echo "-------------------------------------------------"
 
-    # Y/N 拦截确认机制
+    # Y/N 确认机制
     printf "❓ 是否确认下载官方最新版并执行安装/升级？[y/N]: "
     read confirm
     case "$confirm" in
         [yY][eE][sS]|[yY])
             echo "📥 正在从官方下载主程序包..."
-            curl -sLk "$LUCI_APK_URL" -o /tmp/passwall_core.apk
+            curl -sLk -H "User-Agent: Mozilla/5.0" "$LUCI_APK_URL" -o /tmp/passwall_core.apk
             echo "📥 正在从官方下载语言汉化包..."
-            curl -sLk "$LANG_APK_URL" -o /tmp/passwall_zh.apk
+            curl -sLk -H "User-Agent: Mozilla/5.0" "$LANG_APK_URL" -o /tmp/passwall_zh.apk
             
             if [ ! -f /tmp/passwall_core.apk ] || [ ! -f /tmp/passwall_zh.apk ]; then
                 echo "❌ 错误：文件下载失败，请检查软路由到 GitHub 的连通性。"
@@ -69,7 +86,6 @@ install_passwall() {
             fi
             
             echo "📦 正在调用 APK 核心执行本地部署并全自动补齐周边依赖..."
-            # --allow-untrusted 用于允许安装第三方维护的未签名包
             apk add --allow-untrusted /tmp/passwall_core.apk /tmp/passwall_zh.apk
             
             if [ $? -eq 0 ]; then
@@ -79,7 +95,6 @@ install_passwall() {
                 echo "❌ 安装失败，请检查上方 apk 核心错误输出。"
             fi
             
-            # 清理临时文件
             rm -f /tmp/passwall_core.apk /tmp/passwall_zh.apk
             ;;
         *)
