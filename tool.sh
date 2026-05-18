@@ -1,113 +1,122 @@
 #!/bin/sh
 
-# 1. 环境基础合规性检查并引入系统全局变量
+# 1. 环境基础合规性检查
 if [ ! -f /etc/openwrt_release ]; then
     echo "❌ 错误：未检测到标准的 OpenWrt/ImmortalWrt 系统文件，脚本退出。"
     exit 1
 fi
 
-# 注入系统发行版本信息
 . /etc/openwrt_release
-
-# 动态生成纯净标题：优先使用系统全称描述，若无则拼装 ID 和版本号
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
-# 同步软件源索引
 update_source() {
-    echo "🔄 正在同步本地软件包索引 (apk update)..."
+    echo "🔄 正在同步本地 APK 软件包索引 (apk update)..."
     apk update
 }
 
-# 强制刷新 LuCI 网页缓存并重载服务
 refresh_luci() {
-    echo "🔄 正在清理系统网页缓存并重载界面..."
+    echo "🔄 正在强制清理网页菜单缓存并重载界面..."
     rm -rf /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null
     /etc/init.d/uhttpd restart 2>/dev/null
     /etc/init.d/nginx restart 2>/dev/null
 }
 
-# ==================== PassWall 模块 ====================
+# ==================== PassWall 核心模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
     update_source
     echo "-------------------------------------------------"
     echo "🔍 正在读取 PassWall 组件版本信息..."
 
-    # 🛠️ 核心修复：显式使用 -e 参数隔离检测本地实体，断绝云端源索引干扰
+    # 🛠️ 严格校准：只检测本地物理存在的实体包，绝不读取云端索引
     if apk info -e luci-app-passwall >/dev/null 2>&1; then
         CURRENT_VER=$(apk list -I luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     else
         CURRENT_VER="未安装"
     fi
 
-    # 2. 提取当前软件源中收录的最新版本号
     LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     if [ -z "$LATEST_VER" ]; then
-        echo "❌ 错误：在当前软件源中未检测到 luci-app-passwall，请检查网络或更换镜像源。"
+        echo "❌ 错误：源内未发现 luci-app-passwall，请检查网络或更换镜像源。"
         return 1
     fi
 
-    # 3. 打印版本对比看板
-    echo "📊 PassWall 版本比对："
-    echo "   • 当前已安装版本: ${CURRENT_VER}"
-    echo "   • 软件源最新版本: ${LATEST_VER}"
+    echo "📊 PassWall 版本看板："
+    echo "   • 当前本地已安装: ${CURRENT_VER}"
+    echo "   • 软件源最新可用: ${LATEST_VER}"
     echo "-------------------------------------------------"
 
-    # 如果版本一致，给予人性化提示
-    if [ "$CURRENT_VER" = "$LATEST_VER" ]; then
+    if [ "$CURRENT_VER" = "$LATEST_VER" ] && [ "$CURRENT_VER" != "未安装" ]; then
         echo "💡 提示：您当前拥有的已经是源内最新版本。"
     fi
 
-    # 4. Y/N 拦截确认机制
-    printf "❓ 是否确认继续执行安装/升级流程？[y/N]: "
+    printf "❓ 是否确认执行安装/升级流程？[y/N]: "
     read confirm
     case "$confirm" in
         [yY][eE][sS]|[yY])
-            echo "🚀 开始部署 PassWall 组件..."
+            echo "🚀 正在部署 PassWall 核心及中文包..."
             apk add luci-app-passwall luci-i18n-passwall-zh-cn
             if [ $? -eq 0 ]; then
                 refresh_luci
-                echo "✅ PassWall 操作成功！"
+                echo "✅ PassWall 部署成功！"
             else
-                echo "❌ 操作失败，请检查上方 apk 核心错误输出。"
+                echo "❌ 安装失败，请查看上方 apk 报错。建议重装系统后在干净环境下运行。"
             fi
             ;;
         *)
-            echo "🛑 操作已取消，正在返回主菜单。"
+            echo "🛑 操作已取消。"
             ;;
     esac
 }
 
 uninstall_passwall() {
     echo "-------------------------------------------------"
-    echo "🗑️ 正在全清空卸载 PassWall 组件及配置缓存..."
+    echo "🗑️ 正在启动 PassWall 安全卸载程序..."
     
     if [ -f /etc/init.d/passwall ]; then
-        echo "🛑 正在停止 PassWall 后台进程..."
+        echo "🛑 正在强制停止 PassWall 后台所有运行线程..."
         /etc/init.d/passwall stop 2>/dev/null
     fi
     
-    # 彻底卸载外壳与语言包
+    # 1. 拔除前端外壳
     apk del luci-app-passwall luci-i18n-passwall-zh-cn
     
-    # 顺便帮你把配置文件残留和缓存顺手扬了，确保彻底干净
-    rm -rf /etc/config/passwall /usr/share/passwall /var/etc/passwall 2>/dev/null
+    # 2. 彻底扬掉所有残留的用户配置文件、GeoIP分流规则库和历史死尸目录
+    echo "🧹 正在执行深层清除：擦除/etc/config及/usr/share残留..."
+    rm -rf /etc/config/passwall \
+           /usr/share/passwall \
+           /var/etc/passwall \
+           /var/run/passwall* 2>/dev/null
     
+    # 3. 提供硬核选项：是否连同底层内核一起端掉
+    echo "-------------------------------------------------"
+    printf "❓ 是否连同共享内核(Xray, Sing-Box, ChinaDNS-NG)一起卸载清空？[y/N]: "
+    read del_cores
+    case "$del_cores" in
+        [yY][eE][sS]|[yY])
+            echo "💥 正在强制剥离底层核心组件..."
+            apk del chinadns-ng xray-core sing-box dns2tcp trojan-plus 2>/dev/null
+            ;;
+        *)
+            echo "💡 已保留底层共享内核，方便其他插件复用。"
+            ;;
+    esac
+
     refresh_luci
-    echo "✅ PassWall 卸载及残留清理指令全部执行完毕。"
+    echo "✅ 彻底洗地完毕！系统环境已恢复如初。"
 }
 
 # ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
-    echo "  ${SYS_TITLE} 维护工具箱"
+    echo "  ${SYS_TITLE} 维护工具箱 (25.12 APKv3 修正版)"
     echo "================================================="
     echo "底层包管理器: apk"
     echo "-------------------------------------------------"
     echo "💡 请选择需要执行的操作："
     echo "1) 安装 / 升级 PassWall"
-    echo "2) 安全彻底卸载 PassWall (含配置清理)"
-    echo "3) 退出脚本"
+    echo "2) 彻底安全卸载 PassWall (含深层洗地)"
+    echo "3) 退出工具箱"
     echo "-------------------------------------------------"
 
     printf "请输入对应数字 [1-3]: "
@@ -127,7 +136,7 @@ while true; do
             exit 0
             ;;
         *)
-            echo "❌ 输入错误，请输入数字 1、2 或 3。"
+            echo "❌ 输入错误，请输入 1、2 或 3。"
             echo ""
             sleep 1
             ;;
