@@ -10,12 +10,11 @@ fi
 . /etc/openwrt_release
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
-# 核心优化：彻底清理 25.12 JS 后台的幽灵缓存
+# 深度清理 25.12 JS 后台的幽灵缓存
 refresh_luci() {
     echo "🔄 正在深度清理系统网页缓存..."
     rm -rf /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null
     
-    # 25.12 架构最关键一步：必须重启 rpcd 以迫使其重载全新的 APK 菜单路由与权限
     echo "🔄 正在重载系统 RPC 守护进程与网页服务..."
     /etc/init.d/rpcd restart 2>/dev/null
     /etc/init.d/uhttpd restart 2>/dev/null
@@ -30,8 +29,8 @@ install_passwall() {
     echo "-------------------------------------------------"
     echo "🔍 正在读取当前系统的 PassWall 版本状态..."
 
-    # 1. 提取当前系统实际已安装的版本号
-    CURRENT_VER=$(apk info -v luci-app-passwall 2>/dev/null | head -n 1 | sed 's/^luci-app-passwall-//')
+    # 1. 修正：统一采用 apk list -I 提取当前系统实际已安装的版本号
+    CURRENT_VER=$(apk list -I luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/^luci-app-passwall-//')
     if [ -z "$CURRENT_VER" ]; then
         CURRENT_VER="未安装 (系统将执行首次完整初装)"
     fi
@@ -63,7 +62,7 @@ install_passwall() {
             if [ $? -eq 0 ]; then
                 refresh_luci
                 echo "✅ PassWall 操作成功！原节点配置与分流规则已完美保留。"
-                echo "💡 提示：由于浏览器本身可能存在强缓存，若菜单仍未出现，请在网页端按 [Ctrl + F5] 强制刷新浏览器。"
+                echo "💡 提示：由于浏览器本身存在强缓存，若菜单仍未出现，请在网页端按 [Ctrl + F5] 强制刷新浏览器。"
             else
                 echo "❌ 操作失败，请检查上方 apk 核心错误输出。"
             fi
