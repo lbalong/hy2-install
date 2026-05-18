@@ -54,18 +54,13 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 echo "⏳ 正在生成 Xray 通用密钥底层核心..."
 sleep 2
 
-# 6. 🌟 终极修复：合流重定向 (2>&1)，彻底征服所有新旧版本 Xray 的 Stderr 输出黑幕
+# 6. 🌟 黄金修复：合流输出 + sed正则剥离 + tr字符清洗，彻底降伏所有控制符
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 
-# 强制将错误流合并输出到文件
 /usr/local/bin/xray x25519 > /tmp/xray_keys_tmp.txt 2>&1
-
-# 精准抓取最后一个单词
-PRIVATE_KEY=$(awk '/Private key:/ {print $NF}' /tmp/xray_keys_tmp.txt)
-PUBLIC_KEY=$(awk '/Public key:/ {print $NF}' /tmp/xray_keys_tmp.txt)
-
-# 销毁痕迹
+PRIVATE_KEY=$(grep -i "Private key" /tmp/xray_keys_tmp.txt | sed 's/.*:[[:space:]]*//' | tr -d '[:space:]')
+PUBLIC_KEY=$(grep -i "Public key" /tmp/xray_keys_tmp.txt | sed 's/.*:[[:space:]]*//' | tr -d '[:space:]')
 rm -f /tmp/xray_keys_tmp.txt
 
 # 7. 写入配置
