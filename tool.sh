@@ -1,13 +1,16 @@
 #!/bin/sh
 
-# 1. 环境基础合规性检查
+# 1. 环境基础合规性检查并引入系统变量
 if [ ! -f /etc/openwrt_release ]; then
     echo "❌ 错误：未检测到标准的 OpenWrt/ImmortalWrt 系统文件，脚本退出。"
     exit 1
 fi
 
+# 引入系统版本变量（包含 DISTRIB_ID, DISTRIB_RELEASE 等）
+. /etc/openwrt_release
+
 echo "================================================="
-echo "  ImmortalWrt 25.12 专属工具箱 (PassWall 纯净版)"
+echo "  ${DISTRIB_ID} ${DISTRIB_RELEASE} 工具箱 (PassWall 纯净版)"
 echo "================================================="
 echo "系统底层包管理器已确认为: apk"
 echo "-------------------------------------------------"
@@ -24,7 +27,7 @@ install_passwall() {
     echo "⬇️ 开始安装/升级 PassWall 组件..."
     update_source
     
-    # apk add 会自动判断：未安装则全新安装，已安装则自动向官方源索取最新版进行无损升级
+    # apk add 会自动判断：未安装则全新安装，已安装则自动无损升级
     apk add luci-app-passwall luci-i18n-passwall-zh-cn
     if [ $? -eq 0 ]; then
         echo "✅ PassWall 部署/升级流程顺利完成！"
@@ -37,7 +40,6 @@ install_passwall() {
 uninstall_passwall() {
     echo "-------------------------------------------------"
     echo "🗑️ 正在安全卸载 PassWall 组件..."
-    # apk del 会干净利落地移除网页组件，但绝不会动你的核心节点配置文件
     apk del luci-app-passwall luci-i18n-passwall-zh-cn
     echo "✅ PassWall 卸载指令执行完毕。"
 }
