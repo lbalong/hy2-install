@@ -101,4 +101,35 @@ uninstall_passwall() {
 while true; do
     echo "================================================="
     echo "  ${SYS_TITLE} 维护工具箱"
-    echo "
+    echo "================================================="
+    echo "底层包管理器: apk"
+    echo "-------------------------------------------------"
+    echo "💡 请选择需要执行的操作："
+    echo "1) 安装 / 升级 PassWall"
+    echo "2) 安全彻底卸载 PassWall (含配置清理)"
+    echo "3) 退出脚本"
+    echo "-------------------------------------------------"
+
+    printf "请输入对应数字 [1-3]: "
+    read choice
+
+    case $choice in
+        1)
+            install_passwall
+            echo ""
+            ;;
+        2)
+            uninstall_passwall
+            echo ""
+            ;;
+        3)
+            echo "👋 已退出工具箱。"
+            exit 0
+            ;;
+        *)
+            echo "❌ 输入错误，请输入数字 1、2 或 3。"
+            echo ""
+            sleep 1
+            ;;
+    esac
+done
