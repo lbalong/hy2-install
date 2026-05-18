@@ -8,15 +8,7 @@ fi
 
 # 注入系统发行版本信息
 . /etc/openwrt_release
-
-# 动态生成纯净标题：优先使用系统全称描述，若无则拼装 ID 和版本号
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
-
-# 同步软件源索引
-update_source() {
-    echo "🔄 正在同步本地软件包索引 (apk update)..."
-    apk update
-}
 
 # 强制刷新 LuCI 网页缓存并重载服务
 refresh_luci() {
@@ -29,50 +21,69 @@ refresh_luci() {
 # ==================== PassWall 模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
-    update_source
-    echo "-------------------------------------------------"
-    echo "🔍 正在读取 PassWall 组件版本信息..."
-
-    # 1. 提取当前系统已安装的版本号
-    CURRENT_VER=$(apk info luci-app-passwall 2>/dev/null | grep -E '^luci-app-passwall' | head -n 1 | sed 's/luci-app-passwall-//' | awk '{print $1}')
-    if [ -z "$CURRENT_VER" ]; then
-        CURRENT_VER="未安装"
-    fi
-
-    # 2. 提取当前软件源中收录的最新版本号
-    LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | grep -E '^luci-app-passwall' | head -n 1 | sed 's/luci-app-passwall-//' | awk '{print $1}')
-    if [ -z "$LATEST_VER" ]; then
-        echo "❌ 错误：在当前软件源中未检测到 luci-app-passwall，请检查网络或更换镜像源。"
+    echo "🔄 正在同步本地软件源索引以准备自动构建依赖链..."
+    apk update
+    
+    echo "🌐 正在连线 PassWall GitHub 官方获取最新 Release 矩阵..."
+    API_URL="https://api.github.com/repos/Openwrt-Passwall/openwrt-passwall/releases/latest"
+    
+    # 动态抓取 GitHub 最新 Release 的 Tag 版本号
+    LATEST_TAG=$(curl -sLk "$API_URL" | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4)
+    
+    # 精准提取适合 25.12 APK 架构的主程序与语言包下载直链（排除 .ipk 后缀）
+    LUCI_APK_URL=$(curl -sLk "$API_URL" | grep "browser_download_url" | grep -E "luci-app-passwall_.*\.apk" | grep -v "zh-cn" | head -n 1 | cut -d '"' -f 4)
+    LANG_APK_URL=$(curl -sLk "$API_URL" | grep "browser_download_url" | grep -E "luci-i18n-passwall-zh-cn_.*\.apk" | head -n 1 | cut -d '"' -f 4)
+    
+    if [ -z "$LUCI_APK_URL" ] || [ -z "$LANG_APK_URL" ]; then
+        echo "❌ 错误：未能从 GitHub 官方 Releases 中解析到 25.12 专属的 .apk 安装包。"
+        echo "💡 提示：网络可能受到干扰，请确保软路由当前的国际网络畅通。"
         return 1
     fi
 
-    # 3. 打印版本对比看板
-    echo "📊 PassWall 版本比对："
-    echo "   • 当前已安装版本: ${CURRENT_VER}"
-    echo "   • 软件源最新版本: ${LATEST_VER}"
-    echo "-------------------------------------------------"
-
-    # 如果版本一致，给予人性化提示
-    if [ "$CURRENT_VER" = "$LATEST_VER" ]; then
-        echo "💡 提示：您当前拥有的已经是源内最新版本。"
+    # 获取本地已安装的版本号 (利用 apk list 查验)
+    CURRENT_VER=$(apk list -I luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
+    if [ -z "$CURRENT_VER" ]; then
+        CURRENT_VER="未安装 (系统将自动执行首次完整初装)"
     fi
 
-    # 4. Y/N 拦截确认机制
-    printf "❓ 是否确认继续执行安装/升级流程？[y/N]: "
+    echo "-------------------------------------------------"
+    echo "📊 PassWall 版本比对 (数据源: GitHub 官方)"
+    echo "   • 当前系统版本: ${CURRENT_VER}"
+    echo "   • 官方最新版本: ${LATEST_TAG}"
+    echo "-------------------------------------------------"
+
+    # Y/N 拦截确认机制
+    printf "❓ 是否确认下载官方最新版并执行安装/升级？[y/N]: "
     read confirm
     case "$confirm" in
         [yY][eE][sS]|[yY])
-            echo "🚀 开始部署 PassWall 组件..."
-            apk add luci-app-passwall luci-i18n-passwall-zh-cn
+            echo "📥 正在从官方下载主程序包..."
+            curl -sLk "$LUCI_APK_URL" -o /tmp/passwall_core.apk
+            echo "📥 正在从官方下载语言汉化包..."
+            curl -sLk "$LANG_APK_URL" -o /tmp/passwall_zh.apk
+            
+            if [ ! -f /tmp/passwall_core.apk ] || [ ! -f /tmp/passwall_zh.apk ]; then
+                echo "❌ 错误：文件下载失败，请检查软路由到 GitHub 的连通性。"
+                rm -f /tmp/passwall_core.apk /tmp/passwall_zh.apk
+                return 1
+            fi
+            
+            echo "📦 正在调用 APK 核心执行本地部署并全自动补齐周边依赖..."
+            # --allow-untrusted 用于允许安装第三方维护的未签名包
+            apk add --allow-untrusted /tmp/passwall_core.apk /tmp/passwall_zh.apk
+            
             if [ $? -eq 0 ]; then
                 refresh_luci
-                echo "✅ PassWall 操作成功！原节点配置已完美保留。"
+                echo "✅ PassWall 官方最新版部署成功！原有节点数据与分流规则完美保留。"
             else
-                echo "❌ 操作失败，请检查上方 apk 核心错误输出。"
+                echo "❌ 安装失败，请检查上方 apk 核心错误输出。"
             fi
+            
+            # 清理临时文件
+            rm -f /tmp/passwall_core.apk /tmp/passwall_zh.apk
             ;;
         *)
-            echo "🛑 操作已取消，正在返回主菜单。"
+            echo "🛑 操作已取消，返回主菜单。"
             ;;
     esac
 }
@@ -99,7 +110,7 @@ while true; do
     echo "底层包管理器: apk"
     echo "-------------------------------------------------"
     echo "💡 请选择需要执行的操作："
-    echo "1) 安装 / 升级 PassWall"
+    echo "1) 安装 / 升级 PassWall (直连 GitHub 官方源)"
     echo "2) 安全卸载 PassWall"
     echo "3) 退出脚本"
     echo "-------------------------------------------------"
