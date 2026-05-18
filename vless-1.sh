@@ -54,21 +54,21 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 echo "⏳ 正在生成 Xray 通用密钥底层核心..."
 sleep 2
 
-# 6. 🌟 终极解决方案：强行用纯净的文本文件进行密钥对推导，杜绝任何管道截断 Bug！
+# 6. 🌟 终极修复：合流重定向 (2>&1)，彻底征服所有新旧版本 Xray 的 Stderr 输出黑幕
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 
-# 利用官方核心，将密钥强制输出到一个临时的文本文件中
-/usr/local/bin/xray x25519 > /tmp/xray_keys_tmp.txt
+# 强制将错误流合并输出到文件
+/usr/local/bin/xray x25519 > /tmp/xray_keys_tmp.txt 2>&1
 
-# 使用最笨但最稳的方法，直接读取文件的最后两个单词
+# 精准抓取最后一个单词
 PRIVATE_KEY=$(awk '/Private key:/ {print $NF}' /tmp/xray_keys_tmp.txt)
 PUBLIC_KEY=$(awk '/Public key:/ {print $NF}' /tmp/xray_keys_tmp.txt)
 
-# 删除临时文件，不留痕迹
+# 销毁痕迹
 rm -f /tmp/xray_keys_tmp.txt
 
-# 7. 写入配置，变量直接硬塞，不需要你改任何东西
+# 7. 写入配置
 DEST_SERVER="www.microsoft.com"
 mkdir -p /usr/local/etc/xray
 cat <<EOF > /usr/local/etc/xray/config.json
@@ -125,7 +125,7 @@ systemctl daemon-reload && systemctl enable xray && systemctl restart xray
 
 sleep 2
 
-# 9. 直接端上桌的完美输出 (不需要进 VPS，照抄进软路由即可)
+# 9. 直接端上桌的完美输出
 echo "=========================================="
 echo " 🎉 VLESS + Reality 纯净版已完美写入启动！"
 echo "=========================================="
@@ -134,7 +134,7 @@ echo ""
 echo "vless://$UUID@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&flow=xtls-rprx-vision#Reality_SpeedUp_$PORT"
 echo ""
 echo "=========================================="
-echo "🛠️  软路由 PassWall 手动照抄参数表 (你啥也不用推导，直接填！)"
+echo "🛠️  软路由 PassWall 手动照抄参数表"
 echo "=========================================="
 echo " 1. 协议 (Protocol):   VLESS"
 echo " 2. 地址 (Address):    $IP"
@@ -151,7 +151,7 @@ echo " 12.TCP Fast Open:     勾选/开启"
 echo " 13.多路复用 (Mux):    必须关闭！"
 echo "=========================================="
 
-# 最终的安全自检，如果有问题直接报错，绝不隐瞒
+# 最终的安全自检
 if /usr/local/bin/xray -test -config /usr/local/etc/xray/config.json | grep -q "Configuration OK"; then
     echo " ✅ Xray 核心底层自检：Configuration OK. 配置绝无死角！"
 else
