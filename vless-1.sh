@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================="
-echo " VLESS + Reality 终极解脱版 (完美对齐无填充)"
+echo " VLESS + Reality 终极满血版 (含一键快捷查询)"
 echo "=========================================="
 
 # 1. 获取 VPS 本机公网 IP
@@ -54,15 +54,15 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 echo "⏳ 正在配置全纯净网络核心..."
 sleep 2
 
-# 6. 🌟 终极矫正：移除末尾的 = 号，严格对齐 Xray 官方 43 位 Raw Base64 规范
+# 6. 核心参数硬编码（移除末尾 = 号，严格对齐官方 43 位规范）
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 
 PRIVATE_KEY="OHiRUZqq1Yfo5JA6FataI9RzKTE7WPrUoeteBLUpTWc"
 PUBLIC_KEY="8mYkd-02gEB5H0P_d0EcrhXt009P4jBKxba5A1AbE0I"
+DEST_SERVER="www.microsoft.com"
 
 # 7. 写入配置
-DEST_SERVER="www.microsoft.com"
 mkdir -p /usr/local/etc/xray
 cat <<EOF > /usr/local/etc/xray/config.json
 {
@@ -118,11 +118,45 @@ systemctl daemon-reload && systemctl enable xray && systemctl restart xray
 
 sleep 2
 
-# 9. 直接端上桌的完美输出 (注意：一键链接里 pbk= 后面已经带上了最纯正的 43 位公钥)
+# 9. 🌟 智能静默注入：在此处将快捷命令直接写入系统底层
+cat << 'EOF' > /usr/local/bin/vless
+#!/bin/bash
+IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
+PORT=$(jq '.inbounds[0].port' /usr/local/etc/xray/config.json)
+UUID=$(jq -r '.inbounds[0].settings.clients[0].id' /usr/local/etc/xray/config.json)
+SHORT_ID=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' /usr/local/etc/xray/config.json)
+PUBLIC_KEY="8mYkd-02gEB5H0P_d0EcrhXt009P4jBKxba5A1AbE0I"
+DEST_SERVER="www.microsoft.com"
+
+echo "=========================================="
+echo "📋 您的 VLESS-Reality 节点参数 (当前运行中)"
+echo "=========================================="
+echo " 1. 协议 (Protocol):   VLESS"
+echo " 2. 地址 (Address):    $IP"
+echo " 3. 端口 (Port):       $PORT"
+echo " 4. 用户ID (UUID):     $UUID"
+echo " 5. 流控 (Flow):       xtls-rprx-vision"
+echo " 6. 传输协议 (Net):    tcp"
+echo " 7. 加密 (Security):   reality"
+echo " 8. 伪装域名 (SNI):    $DEST_SERVER"
+echo " 9. 公钥 (Public Key): $PUBLIC_KEY"
+echo " 10.短 ID (Short ID):  $SHORT_ID"
+echo " 11.指纹 (Fingerprint):chrome"
+echo " 12.TCP Fast Open:     勾选/开启"
+echo " 13.多路复用 (Mux):    必须关闭"
+echo "=========================================="
+echo "👇 您的通用一键导入链接："
+echo ""
+echo "vless://$UUID@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&flow=xtls-rprx-vision#Reality_SpeedUp_$PORT"
+echo "=========================================="
+EOF
+chmod +x /usr/local/bin/vless
+
+# 10. 首次运行的屏幕输出
 echo "=========================================="
 echo " 🎉 VLESS + Reality 纯净版已完美写入启动！"
 echo "=========================================="
-echo "👇 你的通用一键导入链接 (这次直接复制导入即可)："
+echo "👇 您的通用一键导入链接："
 echo ""
 echo "vless://$UUID@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&flow=xtls-rprx-vision#Reality_SpeedUp_$PORT"
 echo ""
@@ -142,6 +176,8 @@ echo " 10.短 ID (Short ID):  $SHORT_ID"
 echo " 11.指纹 (Fingerprint):chrome"
 echo " 12.TCP Fast Open:     勾选/开启"
 echo " 13.多路复用 (Mux):    必须关闭！"
+echo "=========================================="
+echo "💡 提示：此命令已固化。日后随时在终端输入【vless】即可重新唤出此表。"
 echo "=========================================="
 
 # 最终的安全自检
