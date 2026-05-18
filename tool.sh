@@ -1,127 +1,138 @@
-#!/bin/sh
+#!/bin/bash
 
-# 1. 环境基础合规性检查并引入系统全局变量
-if [ ! -f /etc/openwrt_release ]; then
-    echo "❌ 错误：未检测到标准的 OpenWrt/ImmortalWrt 系统文件，脚本退出。"
-    exit 1
+# 检查是否为 Root 用户
+if [ "$EUID" -ne 0 ]; then
+  echo "错误：请使用 root 用户运行此脚本！"
+  exit 1
 fi
 
-# 注入系统发行版本信息
-. /etc/openwrt_release
-SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
+echo "=========================================="
+echo " VLESS + Reality 终极满血版 (含一键快捷查询)"
+echo "=========================================="
 
-# 同步软件源索引
-update_source() {
-    echo "🔄 正在同步本地软件包索引 (apk update)..."
-    apk update
+# 1. 获取 VPS 本机公网 IP
+IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
+if [ -z "$IP" ]; then
+  echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
+  exit 1
+fi
+
+# 2. 允许用户自定义端口
+DEFAULT_PORT=$(shuf -i 10000-65000 -n 1)
+echo "💡 提示：可以直接输入你面板放行的固定 TCP 端口（如 443 或其他高位端口）。"
+read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT
+if [ -z "$PORT" ]; then PORT=$DEFAULT_PORT; fi
+
+# 3. 核心速度黑科技：BBR + 16MB 巨型缓冲区 + TCP Fast Open
+echo "🚀 正在向内核注入网络超频补丁 (BBR + 16MB缓存 + TFO)..."
+cat <<EOF > /etc/sysctl.d/99-vless-reality-passwall.conf
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.core.rmem_max=16772160
+net.core.wmem_max=16772160
+net.ipv4.tcp_rmem=4096 87380 16772160
+net.ipv4.tcp_wmem=4096 65536 16772160
+net.ipv4.tcp_tw_reuse=1
+net.ipv4.tcp_fin_timeout=15
+net.ipv4.tcp_keepalive_time=600
+net.ipv4.tcp_fastopen=3
+EOF
+sysctl --system >/dev/null 2>&1
+
+# 4. 彻底格式化本地防火墙
+iptables -F && iptables -X
+iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
+
+# 5. 安装基础依赖与最新版 Xray 核心
+if command -v apt-get >/dev/null; then
+  apt-get update && apt-get install -y curl wget jq uuid-runtime iptables socat
+elif command -v yum >/dev/null; then
+  yum makecache && yum install -y curl wget jq uuid-runtime iptables socat
+fi
+bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
+
+echo "⏳ 正在配置全纯净网络核心..."
+sleep 2
+
+# 6. 核心参数硬编码（严格对齐官方 43 位规范）
+UUID=$(cat /proc/sys/kernel/random/uuid)
+SHORT_ID=$(openssl rand -hex 8)
+
+PRIVATE_KEY="OHiRUZqq1Yfo5JA6FataI9RzKTE7WPrUoeteBLUpTWc"
+PUBLIC_KEY="8mYkd-02gEB5H0P_d0EcrhXt009P4jBKxba5A1AbE0I"
+DEST_SERVER="www.microsoft.com"
+
+# 7. 写入配置
+mkdir -p /usr/local/etc/xray
+cat <<EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": $PORT,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$UUID",
+            "flow": "xtls-rprx-vision"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "$DEST_SERVER:443",
+          "xver": 0,
+          "serverNames": [
+            "$DEST_SERVER"
+          ],
+          "privateKey": "$PRIVATE_KEY",
+          "shortIds": [
+            "$SHORT_ID"
+          ]
+        },
+        "sockopt": {
+          "tcpFastOpen": true
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom"
+    }
+  ]
 }
+EOF
 
-# 强制刷新 LuCI 网页缓存并重载服务
-refresh_luci() {
-    echo "🔄 正在清理系统网页缓存并重载界面..."
-    rm -rf /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null
-    /etc/init.d/uhttpd restart 2>/dev/null
-    /etc/init.d/nginx restart 2>/dev/null
-}
+# 8. 强破权限并重启服务
+chmod 644 /usr/local/etc/xray/config.json
+chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null
+systemctl daemon-reload && systemctl enable xray && systemctl restart xray
 
-# ==================== PassWall 模块 ====================
-install_passwall() {
-    echo "-------------------------------------------------"
-    update_source
-    echo "-------------------------------------------------"
-    echo "🔍 正在读取当前系统的 PassWall 版本状态..."
+sleep 2
 
-    # 1. 提取当前系统实际已安装的版本号
-    CURRENT_VER=$(apk list -I luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
-    if [ -z "$CURRENT_VER" ]; then
-        CURRENT_VER="未安装 (系统将执行首次完整初装)"
-    fi
+# 9. 🌟 智能静默注入：在此处将快捷命令直接写入系统底层
+cat << 'EOF' > /usr/local/bin/vless
+#!/bin/bash
+IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
+PORT=$(jq '.inbounds[0].port' /usr/local/etc/xray/config.json)
+UUID=$(jq -r '.inbounds[0].settings.clients[0].id' /usr/local/etc/xray/config.json)
+SHORT_ID=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' /usr/local/etc/xray/config.json)
+PUBLIC_KEY="8mYkd-02gEB5H0P_d0EcrhXt009P4jBKxba5A1AbE0I"
+DEST_SERVER="www.microsoft.com"
 
-    # 2. 提取当前系统官方软件源中收录的最新可用版本号
-    LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | grep -E '^luci-app-passwall' | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
-    if [ -z "$LATEST_VER" ]; then
-        echo "❌ 错误：在当前官方软件源中未检测到 luci-app-passwall 组件。"
-        echo "💡 提示：请检查软路由当前的公网网络是否正常。"
-        return 1
-    fi
-
-    # 3. 打印版本比对看板
-    echo "📊 PassWall 版本比对 (当前软件源分支)："
-    echo "   • 当前已安装版本: ${CURRENT_VER}"
-    echo "   • 软件源最新版本: ${LATEST_VER}"
-    echo "-------------------------------------------------"
-
-    if [ "$CURRENT_VER" = "$LATEST_VER" ]; then
-        echo "💡 提示：您当前拥有的已经是该系统源内的最新版本。"
-    fi
-
-    # 4. Y/N 拦截确认机制
-    printf "❓ 是否确认执行安装/升级流程？[y/N]: "
-    read confirm
-    case "$confirm" in
-        [yY][eE][sS]|[yY])
-            echo "🚀 正在通过 APK 核心部署 PassWall 及其全部周边依赖..."
-            apk add luci-app-passwall luci-i18n-passwall-zh-cn
-            if [ $? -eq 0 ]; then
-                refresh_luci
-                echo "✅ PassWall 操作成功！原节点配置与分流规则已完美保留。"
-            else
-                echo "❌ 操作失败，请检查上方 apk 核心错误输出。"
-            fi
-            ;;
-        *)
-            echo "🛑 操作已取消，返回主菜单。"
-            ;;
-    esac
-}
-
-uninstall_passwall() {
-    echo "-------------------------------------------------"
-    echo "🗑️ 正在安全卸载 PassWall 组件..."
-    
-    if [ -f /etc/init.d/passwall ]; then
-        echo "🛑 正在停止 PassWall 后台进程..."
-        /etc/init.d/passwall stop 2>/dev/null
-    fi
-    
-    apk del luci-app-passwall luci-i18n-passwall-zh-cn
-    refresh_luci
-    echo "✅ PassWall 卸载指令执行完毕。"
-}
-
-# ==================== 主菜单逻辑 ====================
-while true; do
-    echo "================================================="
-    echo "  ${SYS_TITLE} 维护工具箱"
-    echo "================================================="
-    echo "底层包管理器: apk"
-    echo "-------------------------------------------------"
-    echo "💡 请选择需要执行的操作："
-    echo "1) 安装 / 升级 PassWall"
-    echo "2) 安全卸载 PassWall"
-    echo "3) 退出脚本"
-    echo "-------------------------------------------------"
-
-    printf "请输入对应数字 [1-3]: "
-    read choice
-
-    case $choice in
-        1)
-            install_passwall
-            echo ""
-            ;;
-        2)
-            uninstall_passwall
-            echo ""
-            ;;
-        3)
-            echo "👋 已退出工具箱。"
-            exit 0
-            ;;
-        *)
-            echo "❌ 输入错误，请输入数字 1、2 或 3。"
-            echo ""
-            sleep 1
-            ;;
-    esac
-done
+echo "=========================================="
+echo "📋 您的 VLESS-Reality 节点参数 (当前运行中)"
+echo "=========================================="
+echo " 1. 协议 (Protocol):   VLESS"
+echo " 2. 地址 (Address):    $IP"
+echo " 3. 端口 (Port):       $PORT"
+echo " 4. 用户ID (UUID):     $UUID"
+echo " 5. 流控 (Flow):       xtls-rprx
