@@ -7,9 +7,9 @@ if [ ! -f /etc/openwrt_release ]; then
 fi
 
 echo "================================================="
-echo "  ImmortalWrt 25.12 专属工具箱 (PassWall & iStore)"
+echo "  ImmortalWrt 25.12 专属工具箱 (APK 核心版)"
 echo "================================================="
-echo "系统底层包管理器已确认为: apk (Alpine Package Keeper)"
+echo "系统底层包管理器已确认为: apk"
 echo "-------------------------------------------------"
 
 # 同步软件源索引
@@ -28,9 +28,9 @@ restart_web() {
 # ==================== PassWall 模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
-    echo "⬇️ 开始安装/升级 PassWall 节点组件..."
+    echo "⬇️ 开始安装/升级 PassWall 组件..."
     update_source
-    # apk add 会自动判断：未安装则全装，已安装则自动无损升级
+    # apk add 机制会自动判断：未安装则全新安装，已安装则自动无损升级
     apk add luci-app-passwall luci-i18n-passwall-zh-cn
     if [ $? -eq 0 ]; then
         echo "✅ PassWall 部署/升级流程顺利完成！原节点配置已完美保留。"
@@ -49,15 +49,15 @@ uninstall_passwall() {
 # ==================== iStore 模块 ====================
 install_istore() {
     echo "-------------------------------------------------"
-    echo "⬇️ 开始安装/修复 iStore 软件中心..."
+    echo "⬇️ 开始安装/升级 iStore 软件中心..."
     update_source
-    # 在 25.12 环境下，直接调用官方源里编译好的原生 apk 封装包，最纯净
+    # 直接调用 25.12 官方源内编译好的原生 apk 包
     apk add luci-app-store
     if [ $? -eq 0 ]; then
         restart_web
         echo "✅ iStore 应用商店部署完毕，请完全刷新软路由网页查看菜单。"
     else
-        echo "❌ iStore 安装失败，可能是当前架构官方源中暂未收录该版本的 apk 包。"
+        echo "❌ iStore 安装失败，请检查上方 apk 核心报错提示。"
     fi
 }
 
@@ -71,25 +71,20 @@ uninstall_istore() {
 
 # ==================== 主菜单逻辑 ====================
 echo "💡 请选择需要执行的操作："
-echo "1) 安装 / 无损升级 PassWall"
-echo "2) 安装 / 无损升级 iStore 商店"
-echo "3) 同时安装以上两项组件 (全新毕业配置)"
-echo "-------------------------------------------------"
-echo "4) 仅 卸载 PassWall"
-echo "5) 仅 卸载 iStore 商店"
-echo "6) 同时卸载以上两项组件 (恢复纯净系统)"
-echo "7) 退出"
+echo "1) 安装 / 升级 PassWall"
+echo "2) 卸载 PassWall"
+echo "3) 安装 / 升级 iStore 商店"
+echo "4) 卸载 iStore 商店"
+echo "5) 退出"
 echo "-------------------------------------------------"
 
-printf "请输入对应数字 [1-7]: "
+printf "请输入对应数字 [1-5]: "
 read choice
 
 case $choice in
     1) install_passwall ;;
-    2) install_istore ;;
-    3) install_passwall; install_istore ;;
-    4) uninstall_passwall ;;
-    5) uninstall_istore ;;
-    6) uninstall_passwall; uninstall_istore ;;
+    2) uninstall_passwall ;;
+    3) install_istore ;;
+    4) uninstall_istore ;;
     *) echo "操作已取消。"; exit 0 ;;
 esac
