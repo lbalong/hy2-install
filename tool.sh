@@ -8,7 +8,15 @@ fi
 
 # 注入系统发行版本信息
 . /etc/openwrt_release
+
+# 动态生成纯净标题：优先使用系统全称描述，若无则拼装 ID 和版本号
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
+
+# 同步软件源索引
+update_source() {
+    echo "🔄 正在同步本地软件包索引 (apk update)..."
+    apk update
+}
 
 # 强制刷新 LuCI 网页缓存并重载服务
 refresh_luci() {
@@ -21,20 +29,52 @@ refresh_luci() {
 # ==================== PassWall 模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
-    echo "🔄 正在同步本地软件源索引 (apk update)..."
-    apk update
-    
-    echo "📦 正在通过 APK 核心执行 PassWall 部署/升级..."
-    # 直接交由本地 apk 管理器处理：未安装则全新安装，已安装则自动无损覆盖升级
-    apk add luci-app-passwall luci-i18n-passwall-zh-cn
-    
-    if [ $? -eq 0 ]; then
-        refresh_luci
-        echo "✅ PassWall 操作成功！原节点配置与分流规则已完美保留。"
-    else
-        echo "❌ 操作失败，请检查上方 apk 核心错误输出。"
-        echo "💡 提示：如果提示找不到包，说明你当前固件用的镜像源（如 vsean 测试源）暂时没收录该组件。"
+    update_source
+    echo "-------------------------------------------------"
+    echo "🔍 正在读取 PassWall 组件版本信息..."
+
+    # 1. 提取当前系统已安装的版本号
+    CURRENT_VER=$(apk info luci-app-passwall 2>/dev/null | grep -E '^luci-app-passwall' | head -n 1 | sed 's/luci-app-passwall-//' | awk '{print $1}')
+    if [ -z "$CURRENT_VER" ]; then
+        CURRENT_VER="未安装"
     fi
+
+    # 2. 提取当前软件源中收录的最新版本号
+    LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | grep -E '^luci-app-passwall' | head -n 1 | sed 's/luci-app-passwall-//' | awk '{print $1}')
+    if [ -z "$LATEST_VER" ]; then
+        echo "❌ 错误：在当前软件源中未检测到 luci-app-passwall，请检查网络或更换镜像源。"
+        return 1
+    fi
+
+    # 3. 打印版本对比看板
+    echo "📊 PassWall 版本比对："
+    echo "   • 当前已安装版本: ${CURRENT_VER}"
+    echo "   • 软件源最新版本: ${LATEST_VER}"
+    echo "-------------------------------------------------"
+
+    # 如果版本一致，给予人性化提示
+    if [ "$CURRENT_VER" = "$LATEST_VER" ]; then
+        echo "💡 提示：您当前拥有的已经是源内最新版本。"
+    fi
+
+    # 4. Y/N 拦截确认机制
+    printf "❓ 是否确认继续执行安装/升级流程？[y/N]: "
+    read confirm
+    case "$confirm" in
+        [yY][eE][sS]|[yY])
+            echo "🚀 开始部署 PassWall 组件..."
+            apk add luci-app-passwall luci-i18n-passwall-zh-cn
+            if [ $? -eq 0 ]; then
+                refresh_luci
+                echo "✅ PassWall 操作成功！原节点配置已完美保留。"
+            else
+                echo "❌ 操作失败，请检查上方 apk 核心错误输出。"
+            fi
+            ;;
+        *)
+            echo "🛑 操作已取消，正在返回主菜单。"
+            ;;
+    esac
 }
 
 uninstall_passwall() {
@@ -48,7 +88,7 @@ uninstall_passwall() {
     
     apk del luci-app-passwall luci-i18n-passwall-zh-cn
     refresh_luci
-    echo "✅ PassWall 卸载指令执行完毕，页面已清理。"
+    echo "✅ PassWall 卸载指令执行完毕。"
 }
 
 # ==================== 主菜单逻辑 ====================
