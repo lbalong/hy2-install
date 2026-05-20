@@ -10,7 +10,7 @@ echo "=========================================="
 echo "    VLESS + TLS + Vision 域名证书智能校验版"
 echo "=========================================="
 
-# 1. 获取 VPS 本机公网 IP
+# 1. 获取 VPS 本机公网 IP 并智能识别服务器厂商
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid)
 
@@ -18,6 +18,32 @@ if [ -z "$IP" ]; then
   echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
   exit 1
 fi
+
+# 智能识别服务器商家雷达
+PROVIDER="通用云服务器 / 未知机房"
+if [ -f /sys/class/dmi/id/sys_vendor ] || [ -f /sys/class/dmi/id/bios_vendor ] || [ -f /sys/class/dmi/id/product_name ]; then
+    DMI_STR=$(cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/bios_vendor /sys/class/dmi/id/product_name 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    if [[ "$DMI_STR" == *"oracle"* ]]; then
+        PROVIDER="甲骨文云 (Oracle Cloud)"
+    elif [[ "$DMI_STR" == *"amazon"* || "$DMI_STR" == *"aws"* ]]; then
+        PROVIDER="亚马逊云 (AWS)"
+    elif [[ "$DMI_STR" == *"google"* ]]; then
+        PROVIDER="谷歌云 (GCP)"
+    elif [[ "$DMI_STR" == *"alibaba"* || "$DMI_STR" == *"aliyun"* ]]; then
+        PROVIDER="阿里云 (Alibaba Cloud)"
+    elif [[ "$DMI_STR" == *"tencent"* ]]; then
+        PROVIDER="腾讯云 (Tencent Cloud)"
+    elif [[ "$DMI_STR" == *"digitalocean"* ]]; then
+        PROVIDER="DigitalOcean"
+    elif [[ "$DMI_STR" == *"vultr"* ]]; then
+        PROVIDER="Vultr"
+    elif [[ "$DMI_STR" == *"linode"* ]]; then
+        PROVIDER="Linode"
+    elif [[ "$DMI_STR" == *"qemu"* || "$DMI_STR" == *"kvm"* ]]; then
+        PROVIDER="常规 KVM 虚拟化机房"
+    fi
+fi
+echo "🖥️  系统检测当前运行环境为: $PROVIDER"
 
 # 2. 用户输入基本信息
 read -p "👉 请输入已解析到本机的完整域名 (例如 sg.099889.xyz): " DOMAIN
@@ -57,7 +83,10 @@ DEFAULT_PORT=$(shuf -i 10000-65000 -n 1)
 echo "------------------------------------------"
 echo "💡 提示：请输入网页后台放行的固定 TCP 端口（建议不要用 443）。"
 read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT
-if [ -z "$PORT" ]; then PORT=$DEFAULT_PORT; fi
+if [ -z "$PORT" ]; then 
+    PORT=$DEFAULT_PORT
+    echo "🎲 检测到输入为空，已为您无缝启用自动随机端口: $PORT"
+fi
 
 read -p "👉 请输入邮箱 (用于申请证书，直接回车默认 admin@$DOMAIN): " EMAIL
 if [ -z "$EMAIL" ]; then EMAIL="admin@$DOMAIN"; fi
@@ -78,12 +107,39 @@ net.ipv4.tcp_keepalive_time=600
 EOF
 sysctl --system >/dev/null 2>&1
 
-# 4. 防火墙优化
+# 4. 防火墙优化（彻底清空本地残留，并精准双向放行核心节点端口与 80 端口）
+echo "正在清空本地防火墙残留规则并建立通信通道..."
+
+# 如果启用了 UFW，放行对应的通信 TCP 端口和 80 端口，随后关闭主拦截
+if command -v ufw > /dev/null; then
+    ufw allow $PORT/tcp >/dev/null 2>&1
+    ufw allow 80/tcp >/dev/null 2>&1
+    ufw reload >/dev/null 2>&1
+    ufw disable >/dev/null 2>&1
+fi
+
+# 如果启用了 Firewalld，放行指定/随机 TCP 端口和 80 端口
+if command -v firewall-cmd > /dev/null; then
+    firewall-cmd --zone=public --add-port=$PORT/tcp --permanent >/dev/null 2>&1
+    firewall-cmd --zone=public --add-port=80/tcp --permanent >/dev/null 2>&1
+    firewall-cmd --reload >/dev/null 2>&1
+fi
+
+# 原生 iptables 规则彻底清空并策略放行
 iptables -F && iptables -X
 iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
-# 5. 安装依赖与 Xray 核心
-apt-get update && apt-get install -y curl wget jq uuid-runtime iptables socat
+# 强行在 iptables 最前端挂载刚刚生成/输入的特定通信端口和 80 续签端口
+iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
+iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+
+# 5. 安装依赖与 Xray 核心 (智能适配多系统架构)
+echo "正在安装基础依赖..."
+if command -v apt-get >/dev/null; then
+  apt-get update && apt-get install -y curl wget jq uuid-runtime iptables socat
+elif command -v yum >/dev/null; then
+  yum makecache && yum install -y curl wget jq uuid-runtime iptables socat
+fi
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
 # 6. 使用正统 acme.sh 独立模式申请 100% 正规安全证书
@@ -148,7 +204,7 @@ sleep 3
 echo "=========================================="
 echo " 🎉 VLESS + TLS 域名满血版部署成功！"
 echo "=========================================="
-echo "⚠️  云面板后台防火墙放行提示 ⚠️"
+echo "⚠️  [$PROVIDER] 网页后台/安全组放行提示 ⚠️"
 echo " 1. TCP 协议: 80 端口 (用于证书自动续签，必开)"
 echo " 2. TCP 协议: $PORT 端口 (你的节点通信端口，必开)"
 echo "=========================================="
