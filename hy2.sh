@@ -26,7 +26,6 @@ fi
 # 2. 提取公共核心：允许用户完全自定义端口（双模式通用）
 DEFAULT_PORT=$(shuf -i 10000-65000 -n 1)
 echo "------------------------------------------"
-echo "💡 提示：可以直接输入你甲骨文云后台放行的固定 UDP 端口。"
 read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT
 if [ -z "$PORT" ]; then
     PORT=$DEFAULT_PORT
@@ -137,80 +136,4 @@ elif [ "$CHOICE" -eq 2 ]; then
             break
         else
             echo "=========================================="
-            echo "❌ 警告：域名解析校验未通过！"
-            echo "   - 本机 VPS 公网 IP 为: $IP"
-            if [ -z "$DOMAIN_IP" ]; then
-                echo "   - 该域名当前 [未解析] 到任何有效 IPv4 地址"
-            else
-                echo "   - 该域名当前实际解析到: $DOMAIN_IP"
-            fi
-            echo "=========================================="
-            echo "💡 提示：请确保已在 Cloudflare 做好 A 记录解析（且必须保持灰云状态，关闭小云朵）。"
-            read -p "🤔 是否要无视警告，强行使用该域名？[y/N]: " FORCE_USE
-            if [[ "$FORCE_USE" =~ ^[Yy]$ ]]; then
-                echo "⚠️ 已选择强行跳过校验，继续安装..."
-                break
-            fi
-            echo "🔄 请检查解析后重新输入。"
-            echo "------------------------------------------"
-        fi
-    done
-    
-    read -p "👉 请输入邮箱 (直接回车默认 admin@$DOMAIN): " EMAIL
-    if [ -z "$EMAIL" ]; then EMAIL="admin@$DOMAIN"; fi
-
-    # 写入纯正规域名配置文件 (不带任何反代干扰)
-    cat <<EOF > /etc/hysteria/config.yaml
-listen: :$PORT
-acme:
-  domains:
-    - $DOMAIN
-  email: $EMAIL
-auth:
-  type: password
-  password: $PASSWORD
-EOF
-else
-    echo "无效选项，退出脚本。"
-    exit 1
-fi
-
-# 8. 提取公共核心：权限修复
-echo "正在优化文件权限..."
-if id "hysteria" &>/dev/null; then
-    chown -R hysteria:hysteria /etc/hysteria
-fi
-
-# 9. 提取公共核心：配置并启动 Hysteria 2 服务
-systemctl daemon-reload
-systemctl enable hysteria-server
-systemctl restart hysteria-server
-
-sleep 3
-
-# 10. 根据模式精准输出结果链接
-if systemctl is-active --quiet hysteria-server; then
-    echo "=========================================="
-    echo " 🎉 Hysteria 2 服务部署与内核加速成功！"
-    echo "=========================================="
-    
-    if [ "$CHOICE" -eq 1 ]; then
-        echo "⚠️  甲骨文云网页后台放行提示 ⚠️"
-        echo " - IP 协议: UDP, 目标端口: $PORT"
-        echo "=========================================="
-        echo "你的节点链接 (纯 IP 自签版):"
-        echo ""
-        echo "hy2://$PASSWORD@$IP:$PORT/?insecure=1&sni=www.bing.com#Oracle_Hy2_IP_$PORT"
-    else
-        echo "⚠️  甲骨文云网页后台放行提示 ⚠️"
-        echo " 1. IP 协议: TCP, 目标端口: 80  (用于 ACME 自动续签证书，务目保持开启)"
-        echo " 2. IP 协议: UDP, 目标端口: $PORT (你指定的通信端口)"
-        echo "=========================================="
-        echo "你的节点链接 (域名证书版 - 强注 SNI 参数防止客户端留空)："
-        echo ""
-        echo "hy2://$PASSWORD@$DOMAIN:$PORT/?sni=$DOMAIN#Oracle_Hy2_Domain_$PORT"
-    fi
-    echo "=========================================="
-else
-    echo "❌ Hysteria 2 启动失败，请运行 'journalctl -u hysteria-server' 查看错误日志。"
-fi
+            echo "
