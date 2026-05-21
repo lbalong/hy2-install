@@ -8,7 +8,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血域名证书净化版 V7.0"
+echo "    Hysteria 2 & TUIC v5 纯血域名证书净化版 V7.1 (修复版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (域名正规证书版)"
 echo " 2. 安装 TUIC v5    (域名正规证书版)"
@@ -57,7 +57,7 @@ EOF_SYSCTL
     fi
 }
 
-# 🔒 智能域名读取（支持老哥随时换新前缀对账）
+# 智能域名锁定
 get_domain() {
     if [ -f "/etc/vps_domain.txt" ]; then
         local cached_domain=$(cat /etc/vps_domain.txt)
@@ -88,7 +88,7 @@ get_domain() {
     done
 }
 
-# 共享级证书同步（绝不重复向 Let's Encrypt 刷单）
+# 共享级证书同步
 sync_cert() {
     local target_dir=$1
     get_domain
@@ -115,8 +115,8 @@ sync_cert() {
         ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
         echo "✅ 正规域名证书下发成功！"
     else
-        echo "❌ 证书签发限制！自动降级为 10 年期自签名证书保底..."
-        openssl req -x509 -nodes -newkey rsa:2048 -keyout "$target_dir/server.key" -out "$target_dir/server.crt" -days 3650 -subj "/CN=$DOMAIN"
+        echo "❌ 证书签发失败！"
+        exit 1
     fi
 }
 
@@ -135,8 +135,8 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 写入官方标准的 server.yaml 配置文件
-        cat << 'EOF_HY2_YAML' > /etc/hysteria/server.yaml
+        # 🌟 移除单引号，允许变量正常解析替换
+        cat << EOF_HY2_YAML > /etc/hysteria/server.yaml
 listen: :$PORT
 tls:
   cert: /etc/hysteria/server.crt
@@ -146,7 +146,6 @@ auth:
   password: $PASSWORD
 EOF_HY2_YAML
 
-        # 🌟 修复关键：强行过户证书指挥权给 hysteria 低权限用户，杜绝系统掐线
         chown -R hysteria:hysteria /etc/hysteria
         chmod 755 /etc/hysteria
         chmod 644 /etc/hysteria/server.crt
@@ -157,7 +156,7 @@ EOF_HY2_YAML
         echo "=========================================================="
         echo "🎉 Hysteria 2 纯血域名证书版部署成功！"
         echo "=========================================================="
-        echo "👉 分享链接 (已锁死正规 SNI): hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_Domain_正规"
+        echo "👉 分享链接: hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_Domain_正规"
         echo "=========================================================="
         ;;
 
@@ -173,7 +172,8 @@ EOF_HY2_YAML
         wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
         chmod +x /usr/local/bin/tuic-server
 
-        cat << 'EOF_TUIC_JSON' > /etc/tuic/config.json
+        # 🌟 移除单引号，允许变量正常解析替换
+        cat << EOF_TUIC_JSON > /etc/tuic/config.json
 {
   "server": "[::]:$PORT",
   "users": {
@@ -189,7 +189,8 @@ EOF_HY2_YAML
 }
 EOF_TUIC_JSON
 
-        cat << 'EOF_TUIC_SERVICE' > /etc/systemd/system/tuic.service
+        # 🌟 移除单引号，允许变量正常解析替换
+        cat << EOF_TUIC_SERVICE > /etc/systemd/system/tuic.service
 [Unit]
 Description=TUIC V5 Service
 After=network.target
