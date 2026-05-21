@@ -77,29 +77,55 @@ install_passwall() {
         do_apk_update
     fi
 
-    echo "🚀 正在为您闪电补齐缺失的 PassWall 外壳及独占分流组件..."
-    # 🌟 绝杀优化：已遵照圣旨拿掉 hysteria，只抓极轻量的网页壳和 geoview，100% 杜绝卡死
-    apk add --allow-untrusted \
-            luci-app-passwall \
-            luci-i18n-passwall-zh-cn \
-            geoview \
-            chinadns-ng
-            
-    if [ $? -eq 0 ]; then
-        optimize_ntp
-        refresh_system
-        echo "================================================="
-        echo "✅ 🎉 恭喜老哥！PassWall 极速安装已无损完成！"
-        echo "💡 提示：请进入 [DNS] 选项卡，将模式改为「使用 Sing-Box 本地内核高级分流」！"
-        echo "================================================="
+    # 📊 重新焊回：PassWall 版本检测看板逻辑
+    if apk info -e luci-app-passwall >/dev/null 2>&1; then
+        CURRENT_VER=$(apk list -I luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     else
-        echo "❌ 安装失败，请查看上方 apk 报错。"
+        CURRENT_VER="未安装"
+    fi
+
+    LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
+    
+    if [ -z "$LATEST_VER" ]; then
+        echo "❌ 错误：软件源内未发现 luci-app-passwall，请手动检查网络或更换有效的自定义镜像源。"
+        return 1
+    fi
+
+    echo "📊 PassWall 版本看板："
+    echo "   • 当前本地已安装: ${CURRENT_VER}"
+    echo "   • 软件源最新可用: ${LATEST_VER}"
+    echo "-------------------------------------------------"
+
+    printf "❓ 是否确认执行安装/升级流程？[y/N]: "
+    read confirm
+    switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
+    
+    if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
+        echo "🚀 正在为您闪电补齐缺失的 PassWall 外壳及独占分流组件..."
+        apk add --allow-untrusted \
+                luci-app-passwall \
+                luci-i18n-passwall-zh-cn \
+                geoview \
+                chinadns-ng
+                
+        if [ $? -eq 0 ]; then
+            optimize_ntp
+            refresh_system
+            echo "================================================="
+            echo "✅ 🎉 恭喜老哥！PassWall 极速安装已无损完成！"
+            echo "💡 提示：请进入 [DNS] 选项卡，将模式改为「使用 Sing-Box 本地内核高级分流」！"
+            echo "================================================="
+        else
+            echo "❌ 安装失败，请查看上方 apk 报错。"
+        fi
+    else
+        echo "🛑 操作已取消。"
     fi
 }
 
 uninstall_passwall() {
     echo "-------------------------------------------------"
-    echo "🗑️ 正在安全拔除 PassWall 扩展组件..."
+    echo "🗑 "正在安全拔除 PassWall 扩展组件..."
     
     if [ -f /etc/init.d/passwall ]; then
         /etc/init.d/passwall stop 2>/dev/null
@@ -145,7 +171,7 @@ install_argon() {
 
 uninstall_argon() {
     echo "-------------------------------------------------"
-    echo "🗑️ 正在启动 Argon 主题安全卸载程序..."
+    echo "🗑 "正在启动 Argon 主题安全卸载程序..."
     uci set luci.main.mediaurlbase='/luci-static/bootstrap'
     uci commit luci
     apk del luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn 2>/dev/null
