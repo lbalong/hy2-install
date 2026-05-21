@@ -11,9 +11,7 @@ SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
 update_source() {
     echo "🔄 正在执行前置洗地，清空旧缓存暗病..."
-    # 🧼 彻底擦除内存盘里的旧 apk 索引死锁以及网页死尸缓存
     rm -rf /var/cache/apk/* /tmp/luci-*cache /tmp/apk* 2>/dev/null
-    
     echo "🔄 正在同步本地官方 APK 软件包索引 (apk update)..."
     apk update
 }
@@ -145,7 +143,7 @@ uninstall_passwall() {
 # ==================== 核心模块 2：HomeProxy ====================
 install_homeproxy() {
     echo "-------------------------------------------------"
-    # 🎯 核心调校：精准指向 1.12 系列最强大、最稳妥的最终收官版内核
+    # 🎯 核心调校：精准指向 1.12 系列完美收官版内核
     HP_SINGBOX_VER="1.12.15" 
     
     rm -f /etc/apk/repositories 2>/dev/null
@@ -175,7 +173,7 @@ install_homeproxy() {
 
     echo "📊 HomeProxy 版本看板："
     echo "   • 当前本地已安装: ${CURRENT_VER}"
-    echo "   • 锁定降级内核版本: sing-box v${HP_SINGBOX_VER} (1.12最高版)"
+    echo "   • 锁定降级内核版本: sing-box v${HP_SINGBOX_VER}"
     echo "   • 界面软件源可用: ${LATEST_VER}"
     echo "-------------------------------------------------"
 
@@ -184,27 +182,27 @@ install_homeproxy() {
     switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
     
     if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
-        echo "🚀 正在清除可能引发配置语法冲突的官方自带 1.13 高版本 Sing-Box..."
+        echo "🚀 正在强制拔除不听话的官方自带高版本 Sing-Box..."
         apk del sing-box 2>/dev/null
         
-        echo "📥 正在定向抓取 1.12 系列最高稳定版 v${HP_SINGBOX_VER} 内核..."
+        echo "📥 正在就地拉取 1.12 系列最高稳定版 v${HP_SINGBOX_VER} 内核包..."
         curl -Lk "https://github.com/Sashimi2024/sing-box-openwrt/releases/download/v${HP_SINGBOX_VER}/sing-box_${HP_SINGBOX_VER}-1_${ARCH}.apk" -o /tmp/sing-box-old.apk
         
         if [ $? -eq 0 ] && [ -s /tmp/sing-box-old.apk ]; then
-            echo "🔑 正在本地免检强行灌入 1.12.15 经典核心大脑..."
+            echo "🔑 正在本地免检强行灌入 1.12.15 核心..."
             apk add --allow-untrusted /tmp/sing-box-old.apk
         else
-            echo "⚠️ 警告：1.12.15 内核下载遭遇间歇性网络阻断，将默认采用仓储临时核心，稍后可手动补投。"
+            echo "⚠️ 警告：1.12.15 内核下载失败，将默认采用仓储核心..."
         fi
 
-        echo "🚀 正在通过临时高级专线，灌入 HomeProxy 前端外壳及全套防火墙劫持依赖..."
+        echo "🚀 正在部署 HomeProxy 前端外壳及劫持组件 (已移除了 sing-box 自动升级行)..."
+        # 🌟 绝杀：在这里彻底删除了 sing-box 字段！防止官方源借尸还魂去升级覆盖它
         apk --allow-untrusted \
             --repository "$LUCI_REPO" \
             --repository "$PACKAGES_REPO" \
             add luci-app-homeproxy \
                 luci-i18n-homeproxy-zh-cn \
                 luci-i18n-base-zh-cn \
-                sing-box \
                 ca-bundle \
                 libustream-openssl \
                 curl \
@@ -215,7 +213,7 @@ install_homeproxy() {
         if [ $? -eq 0 ]; then
             refresh_system
             echo "================================================="
-            echo "✅ 🎉 恭喜老哥！HomeProxy 1.12.15 闭环版本已完美安装成功！"
+            echo "✅ 🎉 恭喜老哥！这次 HomeProxy 与 1.12.15 已彻底锁死通关！"
             echo "================================================="
         else
             echo "❌ 安装失败，请查看上方 apk 报错。"
@@ -253,12 +251,12 @@ uninstall_homeproxy() {
 # ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
-    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 1.12闭环版)"
+    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 1.12锁死版)"
     echo "================================================="
     echo "💡 请选择操作："
     echo "1) 安装 / 升级 PassWall"
     echo "2) 彻底卸载 PassWall"
-    echo "3) 安装 / 升级 HomeProxy (定向锁死 1.12.15 内核)"
+    echo "3) 安装 / 升级 HomeProxy (完美锁死 1.12.15 内核)"
     echo "4) 彻底卸载 HomeProxy"
     echo "5) 退出工具箱"
     echo "-------------------------------------------------"
