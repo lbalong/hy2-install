@@ -138,12 +138,38 @@ uninstall_homeproxy() {
     echo "✅ HomeProxy 已卸载干净。"
 }
 
-# ==================== 核心模块 3：网页温度卡片 ====================
+# ==================== 核心模块 3：Argon 主题 ====================
+install_argon() {
+    echo "-------------------------------------------------"
+    echo "🎨 正在准备部署大雕经典 Argon 磨砂玻璃全局主题..."
+    do_apk_update
+    LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
+    apk --allow-untrusted --repository "$LUCI_REPO" add luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn
+    if [ $? -eq 0 ]; then
+        uci set luci.main.mediaurlbase='/luci-static/argon'
+        uci commit luci
+        refresh_system
+        echo "✅ 🎉 颜值拉满！Argon 磨砂玻璃主题已成功激活！"
+    else
+        echo "❌ 安装失败。"
+    fi
+}
+
+uninstall_argon() {
+    echo "-------------------------------------------------"
+    echo "🗑️ 正在启动 Argon 主题安全卸载程序..."
+    uci set luci.main.mediaurlbase='/luci-static/bootstrap'
+    uci commit luci
+    apk del luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn 2>/dev/null
+    refresh_system
+    echo "✅ 🎉 还原完毕！"
+}
+
+# ==================== 核心模块 4：网页温度卡片 ====================
 install_web_thermal() {
     echo "-------------------------------------------------"
     echo "🛠️ 正在全自动为主页部署【原生温度对账面板】..."
 
-    # 1. 下发特许安全读取权限 (ACL 豁免白名单)
     cat << 'EOF' > /usr/share/rpcd/acl.d/luci-thermal.json
 {
 	"luci-thermal": {
@@ -157,7 +183,6 @@ install_web_thermal() {
 }
 EOF
 
-    # 2. 灌入现代 LuCI 独立卡片组件 (采用原生中英文字符串，防止汉化包打架)
     cat << 'EOF' > /www/luci-static/resources/view/status/include/15_thermal.js
 'use strict';
 'require baseclass';
@@ -195,39 +220,11 @@ return baseclass.extend({
 });
 EOF
 
-    # 3. 让安全大脑和网页守卫强制刷新
     /etc/init.d/rpcd restart 2>/dev/null
     refresh_system
     echo "================================================="
     echo "✅ 🎉 报告老哥：网页原生温度卡片已完美融入系统插槽！"
-    echo "💡 提示：现在直接刷新网页首页，奇迹瞬间发生！"
     echo "================================================="
-}
-
-# ==================== 核心模块 4：Argon 主题 ====================
-install_argon() {
-    echo "-------------------------------------------------"
-    echo "🎨 正在准备部署大雕经典 Argon 磨砂玻璃全局主题..."
-    do_apk_update
-    LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
-    apk --allow-untrusted --repository "$LUCI_REPO" add luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn
-    if [ $? -eq 0 ]; then
-        uci set luci.main.mediaurlbase='/luci-static/argon'
-        uci commit luci
-        refresh_system
-        echo "✅ 🎉 颜值拉满！Argon 磨砂玻璃主题已成功激活！"
-    else
-        echo "❌ 安装失败。"
-    fi
-}
-
-uninstall_argon() {
-    echo "-------------------------------------------------"
-    uci set luci.main.mediaurlbase='/luci-static/bootstrap'
-    uci commit luci
-    apk del luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn 2>/dev/null
-    refresh_system
-    echo "✅ 🎉 还原完毕！"
 }
 
 # ==================== 主菜单逻辑 ====================
@@ -241,8 +238,8 @@ while true; do
     echo "3) 一键闪电安装 HomeProxy"
     echo "4) 彻底安全卸载 HomeProxy"
     echo "5) 一键安装 / 强制激活大雕 Argon 磨砂主题"
-    echo "6) 一键网页原生注入 CPU 实时温度面板 (不伤系统)"
-    echo "7) 一键彻底卸载 Argon 主题"
+    echo "6) 一键彻底卸载 Argon 主题"
+    echo "7) 一键网页原生注入 CPU 实时温度面板 (不伤系统)"
     echo "8) 退出工具箱"
     echo "-------------------------------------------------"
     printf "请输入对应数字 [1-8]: "
@@ -253,8 +250,8 @@ while true; do
         3) install_homeproxy ; echo "" ;;
         4) uninstall_homeproxy ; echo "" ;;
         5) install_argon ; echo "" ;;
-        6) install_web_thermal ; echo "" ;;
-        7) uninstall_argon ; echo "" ;;
+        6) uninstall_argon ; echo "" ;;
+        7) install_web_thermal ; echo "" ;;
         8) echo "👋 已退出。" ; exit 0 ;;
         *) echo "❌ 输入错误。" ; echo "" ; sleep 1 ;;
     esac
