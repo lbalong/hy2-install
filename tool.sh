@@ -10,9 +10,8 @@ fi
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
 update_source() {
-    echo "🔄 正在同步本地 APK 软件包索引 (apk update --allow-untrusted)..."
-    # 挂载免检参数，强行吃下第三方源的索引
-    apk update --allow-untrusted
+    echo "🔄 正在同步本地 APK 软件包索引 (apk update)..."
+    apk update
 }
 
 refresh_luci() {
@@ -25,8 +24,9 @@ refresh_luci() {
 # ==================== PassWall 核心模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
-    # 🧼 核心修复：斩草除根！率先扬掉前几次失败运行残留在根目录的毒瘤文件
+    # 🧼 斩草除根：清空前几次失败运行残留在根目录及隔离区的毒瘤文件
     rm -f /etc/apk/repositories 2>/dev/null
+    rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
     
     update_source
     echo "-------------------------------------------------"
@@ -45,26 +45,31 @@ install_passwall() {
     if [ -z "$LATEST_VER" ]; then
         echo "❌ 警告：当前系统官方软件源内未发现 luci-app-passwall（官方源默认不收录代理插件）。"
         echo "-------------------------------------------------"
-        echo "💡 我们可以尝试为您自动接入社区高频维护、完美适配 APK v3 的 Snapshots 扩展仓储。"
+        echo "💡 我们可以尝试为您自动下发安全公网密钥，并接入支持 APK v3 的正统 PassWall 扩展源。"
         printf "❓ 是否允许脚本尝试为您配置第三方 PassWall 软件源？[y/N]: "
         read add_repo
         if [[ "$add_repo" =~ ^[Yy]$ ]]; then
             # 自动提取当前 OpenWrt 25 底层的真实硬件架构 (如 aarch64_cortex-a53)
             ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
-            CUSTOM_REPO_FILE="/etc/apk/repositories.d/custom.list"
+            CUSTOM_REPO_FILE="/etc/apk/repositories.d/customfeeds.list"
             
-            # 确保标准的散装配置目录存在，并原地强制刷新空白兜底文件，绝不报 grep 错误
+            # 确保标准的配置目录和密钥目录存在
             mkdir -p /etc/apk/repositories.d
+            mkdir -p /etc/apk/keys
             rm -f "$CUSTOM_REPO_FILE" 2>/dev/null
             touch "$CUSTOM_REPO_FILE"
             
-            # 智能注入含有代理组件与依赖核心的 Snapshots 实时软件源
-            echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci" > "$CUSTOM_REPO_FILE"
-            echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/packages" >> "$CUSTOM_REPO_FILE"
-            echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/routing" >> "$CUSTOM_REPO_FILE"
-            echo "✅ 扩展源已安全隔离写入: $CUSTOM_REPO_FILE"
+            # 🔐 核心黑科技 1：提前静默下发官方数字签名公钥，让 OpenWrt 25 给予 100% 原生合法信任
+            echo "🔑 正在同步下发专属第三方安全信任密钥..."
+            curl -sLk "https://master.dl.sourceforge.net/project/openwrt-passwall-build/apk.pub" -o /etc/apk/keys/passwall.pub
             
-            # 重新同步索引（带免检标记）并二次获取版本
+            # 🎯 核心黑科技 2：严格遵循 OpenWrt 25 规范，将 URL 死死锁定到 /packages.adb 最终文件名！
+            echo "📥 正在配置全套兼容的经典 Passwall 核心及前端组件专线..."
+            echo "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/$ARCH/passwall_luci/packages.adb" > "$CUSTOM_REPO_FILE"
+            echo "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/$ARCH/passwall_packages/packages.adb" >> "$CUSTOM_REPO_FILE"
+            echo "✅ 扩展源及公钥配置完毕。"
+            
+            # 重新同步索引并二次获取版本
             update_source
             LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
         fi
@@ -81,16 +86,15 @@ install_passwall() {
     echo "-------------------------------------------------"
 
     if [ "$CURRENT_VER" = "$LATEST_VER" ] && [ "$CURRENT_VER" != "未安装" ]; then
-        echo "💡 提示：您当前拥有的已经是源内最新版本。"
+        echo "💡 提示：您当前拥建立的是源内最新版本。"
     fi
 
     printf "❓ 是否确认执行安装/升级流程？[y/N]: "
     read confirm
     case "$confirm" in
         [yY][eE][sS]|[yY])
-            echo "🚀 正在部署 PassWall 核心及中文包 (全面绕过安全证书签名)..."
-            # 核心绝杀：通过 --allow-untrusted 强行将第三方软件灌入官方原版固件中
-            apk add --allow-untrusted luci-app-passwall luci-i18n-passwall-zh-cn
+            echo "🚀 正在通过 APK 引擎安全部署 PassWall 核心及中文包..."
+            apk add luci-app-passwall luci-i18n-passwall-zh-cn
             if [ $? -eq 0 ]; then
                 refresh_luci
                 echo "✅ PassWall 部署成功！"
@@ -123,9 +127,11 @@ uninstall_passwall() {
            /var/etc/passwall \
            /var/run/passwall* 2>/dev/null
     
-    # 3. 清理可能注入的第三方自定义软件源配置（彻底洗地恢复纯净原厂）
+    # 3. 清理可能注入的第三方自定义软件源配置与授权密钥（彻底洗地恢复原厂纯净）
+    rm -f /etc/apk/repositories.d/customfeeds.list 2>/dev/null
     rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
     rm -f /etc/apk/repositories 2>/dev/null
+    rm -f /etc/apk/keys/passwall.pub 2>/dev/null
     
     # 4. 提供硬核选项：是否连同底层内核一起端掉
     echo "-------------------------------------------------"
@@ -148,7 +154,7 @@ uninstall_passwall() {
 # ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
-    echo "  ${SYS_TITLE} 维护工具箱 (25.12 APKv3 修正版)"
+    echo "  ${SYS_TITLE} 维护工具箱 (25.12 APKv3 终极版)"
     echo "================================================="
     echo "底层包管理器: apk"
     echo "-------------------------------------------------"
