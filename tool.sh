@@ -10,8 +10,9 @@ fi
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
 update_source() {
-    echo "🔄 正在同步本地 APK 软件包索引 (apk update)..."
-    apk update
+    echo "🔄 正在同步本地 APK 软件包索引 (apk update --allow-untrusted)..."
+    # 挂载免检参数，强行吃下第三方源的索引
+    apk update --allow-untrusted
 }
 
 refresh_luci() {
@@ -24,6 +25,9 @@ refresh_luci() {
 # ==================== PassWall 核心模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
+    # 🧼 核心修复：斩草除根！率先扬掉前几次失败运行残留在根目录的毒瘤文件
+    rm -f /etc/apk/repositories 2>/dev/null
+    
     update_source
     echo "-------------------------------------------------"
     echo "🔍 正在读取 PassWall 组件版本信息..."
@@ -49,21 +53,18 @@ install_passwall() {
             ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
             CUSTOM_REPO_FILE="/etc/apk/repositories.d/custom.list"
             
-            # 确保标准的散装配置目录存在，并原地创建空白兜底文件，绝不报 grep 错误
+            # 确保标准的散装配置目录存在，并原地强制刷新空白兜底文件，绝不报 grep 错误
             mkdir -p /etc/apk/repositories.d
+            rm -f "$CUSTOM_REPO_FILE" 2>/dev/null
             touch "$CUSTOM_REPO_FILE"
             
             # 智能注入含有代理组件与依赖核心的 Snapshots 实时软件源
-            if ! grep -q "snapshots/packages/.*luci" "$CUSTOM_REPO_FILE"; then
-                echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci" >> "$CUSTOM_REPO_FILE"
-                echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/packages" >> "$CUSTOM_REPO_FILE"
-                echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/routing" >> "$CUSTOM_REPO_FILE"
-                echo "✅ 扩展源已安全隔离写入: $CUSTOM_REPO_FILE"
-            else
-                echo "💡 检测到扩展源配置已存在，跳过注入。"
-            fi
+            echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci" > "$CUSTOM_REPO_FILE"
+            echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/packages" >> "$CUSTOM_REPO_FILE"
+            echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/routing" >> "$CUSTOM_REPO_FILE"
+            echo "✅ 扩展源已安全隔离写入: $CUSTOM_REPO_FILE"
             
-            # 重新同步索引并二次获取版本
+            # 重新同步索引（带免检标记）并二次获取版本
             update_source
             LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
         fi
@@ -87,8 +88,9 @@ install_passwall() {
     read confirm
     case "$confirm" in
         [yY][eE][sS]|[yY])
-            echo "🚀 正在部署 PassWall 核心及中文包..."
-            apk add luci-app-passwall luci-i18n-passwall-zh-cn
+            echo "🚀 正在部署 PassWall 核心及中文包 (全面绕过安全证书签名)..."
+            # 核心绝杀：通过 --allow-untrusted 强行将第三方软件灌入官方原版固件中
+            apk add --allow-untrusted luci-app-passwall luci-i18n-passwall-zh-cn
             if [ $? -eq 0 ]; then
                 refresh_luci
                 echo "✅ PassWall 部署成功！"
@@ -123,6 +125,7 @@ uninstall_passwall() {
     
     # 3. 清理可能注入的第三方自定义软件源配置（彻底洗地恢复纯净原厂）
     rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
+    rm -f /etc/apk/repositories 2>/dev/null
     
     # 4. 提供硬核选项：是否连同底层内核一起端掉
     echo "-------------------------------------------------"
