@@ -9,7 +9,7 @@ fi
 . /etc/openwrt_release
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
-# 🎯 2. 绝杀：前置全自动补齐 curl 命令及 HTTPS 证书链
+# 🎯 2. 前置自动补齐 curl 命令及 HTTPS 证书链
 if ! command -v curl >/dev/null 2>&1; then
     echo "🌐 检测到原厂系统未打包 curl 命令，正在全自动为您铺设底层网络水管..."
     rm -rf /var/cache/apk/* /tmp/apk* 2>/dev/null
@@ -100,13 +100,16 @@ install_passwall() {
     switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
     
     if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
-        echo "🚀 正在全自动部署前端、汉化包、解密核心及防火墙内核抓包外挂..."
+        echo "🚀 正在全自动部署前端、汉化包、多协议核心及防火墙内核抓包外挂..."
+        # 🌟 核心修复：在这里显式集成了 hysteria 核心以及必不可少的 geoview 依赖组件
         apk add --allow-untrusted \
                 luci-app-passwall \
                 luci-i18n-passwall-zh-cn \
                 luci-i18n-base-zh-cn \
                 xray-core \
                 sing-box \
+                hysteria \
+                geoview \
                 chinadns-ng \
                 ca-bundle \
                 libustream-openssl \
@@ -118,7 +121,7 @@ install_passwall() {
         if [ $? -eq 0 ]; then
             refresh_system
             echo "================================================="
-            echo "✅ 🎉 恭喜老哥！PassWall 全套组件与汉化已完美闭环通关！"
+            echo "✅ 🎉 恭喜老哥！PassWall（含 Hysteria 与 Geoview）已完美闭环通关！"
             echo "================================================="
         else
             echo "❌ 安装失败，请查看上方 apk 报错。"
@@ -131,77 +134,3 @@ install_passwall() {
 uninstall_passwall() {
     echo "-------------------------------------------------"
     echo "🗑️ 正在启动 PassWall 安全卸载程序..."
-    
-    if [ -f /etc/init.d/passwall ]; then
-        echo "🛑 正在强制停止 PassWall 后台所有运行线程..."
-        /etc/init.d/passwall stop 2>/dev/null
-    fi
-    
-    apk del luci-app-passwall luci-i18n-passwall-zh-cn
-    rm -rf /etc/config/passwall /usr/share/passwall /var/etc/passwall /var/run/passwall* 2>/dev/null
-    rm -f /etc/apk/repositories.d/customfeeds.list /etc/apk/repositories.d/custom.list /etc/apk/repositories /etc/apk/keys/passwall.pub 2>/dev/null
-    
-    printf "❓ 是否连同共享内核(Xray, ChinaDNS-NG)一起卸载清空？[y/N]: "
-    read del_cores
-    switch_cores=$(echo "$del_cores" | tr '[:upper:]' '[:lower:]')
-    
-    if [ "$switch_cores" = "y" ] || [ "$switch_cores" = "yes" ]; then
-        apk del chinadns-ng xray-core iptables-nft 2>/dev/null
-    fi
-    refresh_system
-    echo "✅ 彻底洗地完毕！系统环境已恢复纯净。"
-}
-
-# ==================== 核心模块 2：Argon 主题 ====================
-install_argon() {
-    echo "-------------------------------------------------"
-    echo "🎨 正在准备部署大雕经典 Argon 磨砂玻璃全局主题..."
-    
-    ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
-    LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
-    
-    update_source
-    echo "-------------------------------------------------"
-    echo "🚀 正在通过临时高级专线，强灌 Argon 主题、控制台面板及全套汉化..."
-    
-    apk --allow-untrusted --repository "$LUCI_REPO" add \
-        luci-theme-argon \
-        luci-app-argon-config \
-        luci-i18n-argon-config-zh-cn
-        
-    if [ $? -eq 0 ]; then
-        echo "🔄 正在执行命令：一键强行切断旧主题，激活 Argon 为系统默认全局外观..."
-        uci set luci.main.mediaurlbase='/luci-static/argon'
-        uci commit luci
-        
-        refresh_system
-        echo "================================================="
-        echo "✅ 🎉 颜值拉满！Argon 磨砂玻璃全套组件已成功接管你的软路由后台！"
-        echo "💡 提示：现在直接去刷新你的网页浏览器，奇迹瞬间发生！"
-        echo "================================================="
-    else
-        echo "❌ 安装失败，请查看上方 apk 报错。"
-    fi
-}
-
-# ==================== 主菜单逻辑 ====================
-while true; do
-    echo "================================================="
-    echo "  ${SYS_TITLE} 维护工具箱 (PassWall & 颜值旗舰版)"
-    echo "================================================="
-    echo "💡 请选择操作："
-    echo "1) 一键满血安装 / 升级 PassWall (含自动配源与全套汉化)"
-    echo "2) 彻底安全卸载 PassWall (精细化深层洗地)"
-    echo "3) 一键安装 / 强制激活大雕 Argon 磨砂主题 (带中文配置面板)"
-    echo "4) 退出工具箱"
-    echo "-------------------------------------------------"
-    printf "请输入对应数字 [1-4]: "
-    read choice
-    case $choice in
-        1) install_passwall ; echo "" ;;
-        2) uninstall_passwall ; echo "" ;;
-        3) install_argon ; echo "" ;;
-        4) echo "👋 已退出。" ; exit 0 ;;
-        *) echo "❌ 输入错误，请输入数字 1 到 4。" ; echo "" ; sleep 1 ;;
-    esac
-done
