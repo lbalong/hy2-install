@@ -24,15 +24,16 @@ refresh_luci() {
 # ==================== PassWall 核心模块 ====================
 install_passwall() {
     echo "-------------------------------------------------"
-    # 🧼 斩草除根：清空前几次失败运行残留在根目录及隔离区的毒瘤文件
+    # 🧼 彻底清场：率先扬掉前几次失败运行产生的所有历史残留乱麻文件
     rm -f /etc/apk/repositories 2>/dev/null
     rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
+    rm -f /etc/apk/repositories.d/customfeeds.list 2>/dev/null
     
     update_source
     echo "-------------------------------------------------"
     echo "🔍 正在读取 PassWall 组件版本信息..."
 
-    # 🛠️ 严格校准：只检测本地物理存在的实体包，绝不读取云端索引
+    # 🛠️ 严格校准：只检测本地物理存在的实体包
     if apk info -e luci-app-passwall >/dev/null 2>&1; then
         CURRENT_VER=$(apk list -I luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     else
@@ -41,35 +42,34 @@ install_passwall() {
 
     LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     
-    # 🌟 智能修复核心：专治官方原版源缺失代理插件的断水问题
+    # 🌟 智能修复核心：完美驯服官方原版 OpenWrt 25 的硬核校验机制
     if [ -z "$LATEST_VER" ]; then
         echo "❌ 警告：当前系统官方软件源内未发现 luci-app-passwall（官方源默认不收录代理插件）。"
         echo "-------------------------------------------------"
-        echo "💡 我们可以尝试为您自动下发安全公网密钥，并接入支持 APK v3 的正统 PassWall 扩展源。"
+        echo "💡 我们可以尝试为您自动下发安全公网密钥，并接入完美适配 APK v3 的正统 PassWall 扩展源。"
         printf "❓ 是否允许脚本尝试为您配置第三方 PassWall 软件源？[y/N]: "
         read add_repo
-        if [[ "$add_repo" =~ ^[Yy]$ ]]; then
+        
+        if [ "$add_repo" = "y" ] || [ "$add_repo" = "Y" ]; then
             # 自动提取当前 OpenWrt 25 底层的真实硬件架构 (如 aarch64_cortex-a53)
             ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
             CUSTOM_REPO_FILE="/etc/apk/repositories.d/customfeeds.list"
             
-            # 确保标准的配置目录和密钥目录存在
+            # 确保散装配置目录和密钥目录存在
             mkdir -p /etc/apk/repositories.d
             mkdir -p /etc/apk/keys
-            rm -f "$CUSTOM_REPO_FILE" 2>/dev/null
-            touch "$CUSTOM_REPO_FILE"
             
-            # 🔐 核心黑科技 1：提前静默下发官方数字签名公钥，让 OpenWrt 25 给予 100% 原生合法信任
+            # 🔐 核心超频 1：提前静默下发数字签名公钥，让原版 OpenWrt 25 给予 100% 官方合规信任
             echo "🔑 正在同步下发专属第三方安全信任密钥..."
             curl -sLk "https://master.dl.sourceforge.net/project/openwrt-passwall-build/apk.pub" -o /etc/apk/keys/passwall.pub
             
-            # 🎯 核心黑科技 2：严格遵循 OpenWrt 25 规范，将 URL 死死锁定到 /packages.adb 最终文件名！
+            # 🎯 核心超频 2：严格遵循 APK v3 规范，将 URL 尾部死死锁定到 /packages.adb 最终文件名！绝不让系统降级报错
             echo "📥 正在配置全套兼容的经典 Passwall 核心及前端组件专线..."
             echo "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/$ARCH/passwall_luci/packages.adb" > "$CUSTOM_REPO_FILE"
             echo "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/$ARCH/passwall_packages/packages.adb" >> "$CUSTOM_REPO_FILE"
             echo "✅ 扩展源及公钥配置完毕。"
             
-            # 重新同步索引并二次获取版本
+            # 重新同步索引并二次获取真实可装版本
             update_source
             LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
         fi
@@ -86,26 +86,25 @@ install_passwall() {
     echo "-------------------------------------------------"
 
     if [ "$CURRENT_VER" = "$LATEST_VER" ] && [ "$CURRENT_VER" != "未安装" ]; then
-        echo "💡 提示：您当前拥建立的是源内最新版本。"
+        echo "💡 提示：您当前拥有的已经是源内最新版本。"
     fi
 
     printf "❓ 是否确认执行安装/升级流程？[y/N]: "
     read confirm
-    case "$confirm" in
-        [yY][eE][sS]|[yY])
-            echo "🚀 正在通过 APK 引擎安全部署 PassWall 核心及中文包..."
-            apk add luci-app-passwall luci-i18n-passwall-zh-cn
-            if [ $? -eq 0 ]; then
-                refresh_luci
-                echo "✅ PassWall 部署成功！"
-            else
-                echo "❌ 安装失败，请查看上方 apk 报错。建议重装系统后在干净环境下运行。"
-            fi
-            ;;
-        *)
-            echo "🛑 操作已取消。"
-            ;;
-    esac
+    switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
+    
+    if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
+        echo "🚀 正在通过 APK 引擎安全部署 PassWall 核心及中文包..."
+        apk add luci-app-passwall luci-i18n-passwall-zh-cn
+        if [ $? -eq 0 ]; then
+            refresh_luci
+            echo "✅ PassWall 部署成功！"
+        else
+            echo "❌ 安装失败，请查看上方 apk 报错。建议重装系统后在干净环境下运行。"
+        fi
+    else
+        echo "🛑 操作已取消。"
+    fi
 }
 
 uninstall_passwall() {
@@ -127,7 +126,7 @@ uninstall_passwall() {
            /var/etc/passwall \
            /var/run/passwall* 2>/dev/null
     
-    # 3. 清理可能注入的第三方自定义软件源配置与授权密钥（彻底洗地恢复原厂纯净）
+    # 3. 清理所有第三方自定义扩展源与授权密钥（彻底洗地恢复原厂纯净）
     rm -f /etc/apk/repositories.d/customfeeds.list 2>/dev/null
     rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
     rm -f /etc/apk/repositories 2>/dev/null
@@ -137,15 +136,14 @@ uninstall_passwall() {
     echo "-------------------------------------------------"
     printf "❓ 是否连同共享内核(Xray, Sing-Box, ChinaDNS-NG)一起卸载清空？[y/N]: "
     read del_cores
-    case "$del_cores" in
-        [yY][eE][sS]|[yY])
-            echo "💥 正在强制剥离底层核心组件..."
-            apk del chinadns-ng xray-core sing-box dns2tcp trojan-plus 2>/dev/null
-            ;;
-        *)
-            echo "💡 已保留底层共享内核，方便其他插件复用。"
-            ;;
-    esac
+    switch_cores=$(echo "$del_cores" | tr '[:upper:]' '[:lower:]')
+    
+    if [ "$switch_cores" = "y" ] || [ "$switch_cores" = "yes" ]; then
+        echo "💥 正在强制剥离底层核心组件..."
+        apk del chinadns-ng xray-core sing-box dns2tcp trojan-plus 2>/dev/null
+    else
+        echo "💡 已保留底层共享内核，方便其他插件复用。"
+    fi
 
     refresh_luci
     echo "✅ 彻底洗地完毕！系统环境已恢复如初。"
