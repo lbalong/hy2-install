@@ -143,8 +143,8 @@ uninstall_passwall() {
 # ==================== 核心模块 2：HomeProxy ====================
 install_homeproxy() {
     echo "-------------------------------------------------"
-    # 🎯 核心调校：精准指向 1.12 系列完美收官版内核
-    HP_SINGBOX_VER="1.12.15" 
+    # 🎯 核心调校：精准锁定 1.12 系列在 OpenWrt 25.12 架构下的最完美收官版内核
+    HP_SINGBOX_VER="1.12.22" 
     
     rm -f /etc/apk/repositories 2>/dev/null
     rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
@@ -171,103 +171,4 @@ install_homeproxy() {
         LATEST_VER="获取成功 (专线通道已就绪，可直接安装)"
     fi
 
-    echo "📊 HomeProxy 版本看板："
-    echo "   • 当前本地已安装: ${CURRENT_VER}"
-    echo "   • 锁定降级内核版本: sing-box v${HP_SINGBOX_VER}"
-    echo "   • 界面软件源可用: ${LATEST_VER}"
-    echo "-------------------------------------------------"
-
-    printf "❓ 是否确认执行【1.12.15 内核锁死】满血安装流程？[y/N]: "
-    read confirm
-    switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
-    
-    if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
-        echo "🚀 正在强制拔除不听话的官方自带高版本 Sing-Box..."
-        apk del sing-box 2>/dev/null
-        
-        echo "📥 正在就地拉取 1.12 系列最高稳定版 v${HP_SINGBOX_VER} 内核包..."
-        curl -Lk "https://github.com/Sashimi2024/sing-box-openwrt/releases/download/v${HP_SINGBOX_VER}/sing-box_${HP_SINGBOX_VER}-1_${ARCH}.apk" -o /tmp/sing-box-old.apk
-        
-        if [ $? -eq 0 ] && [ -s /tmp/sing-box-old.apk ]; then
-            echo "🔑 正在本地免检强行灌入 1.12.15 核心..."
-            apk add --allow-untrusted /tmp/sing-box-old.apk
-        else
-            echo "⚠️ 警告：1.12.15 内核下载失败，将默认采用仓储核心..."
-        fi
-
-        echo "🚀 正在部署 HomeProxy 前端外壳及劫持组件 (已移除了 sing-box 自动升级行)..."
-        # 🌟 绝杀：在这里彻底删除了 sing-box 字段！防止官方源借尸还魂去升级覆盖它
-        apk --allow-untrusted \
-            --repository "$LUCI_REPO" \
-            --repository "$PACKAGES_REPO" \
-            add luci-app-homeproxy \
-                luci-i18n-homeproxy-zh-cn \
-                luci-i18n-base-zh-cn \
-                ca-bundle \
-                libustream-openssl \
-                curl \
-                kmod-nft-tproxy \
-                ip-full \
-                iptables-nft
-                
-        if [ $? -eq 0 ]; then
-            refresh_system
-            echo "================================================="
-            echo "✅ 🎉 恭喜老哥！这次 HomeProxy 与 1.12.15 已彻底锁死通关！"
-            echo "================================================="
-        else
-            echo "❌ 安装失败，请查看上方 apk 报错。"
-        fi
-    else
-        echo "🛑 操作已取消。"
-    fi
-}
-
-uninstall_homeproxy() {
-    echo "-------------------------------------------------"
-    echo "🗑️ 正在启动 HomeProxy 安全卸载程序..."
-    
-    if [ -f /etc/init.d/homeproxy ]; then
-        /etc/init.d/homeproxy stop 2>/dev/null
-        /etc/init.d/homeproxy disable 2>/dev/null
-    fi
-    
-    apk del luci-app-homeproxy luci-i18n-homeproxy-zh-cn
-    rm -rf /etc/config/homeproxy /usr/share/homeproxy /var/etc/homeproxy /var/run/homeproxy* 2>/dev/null
-    rm -f /etc/apk/repositories.d/homeproxy.list /etc/apk/repositories 2>/dev/null
-    
-    printf "❓ 是否连同独占核心(Sing-Box)一起卸载清空？[y/N]: "
-    read del_cores
-    switch_cores=$(echo "$del_cores" | tr '[:upper:]' '[:lower:]')
-    
-    if [ "$switch_cores" = "y" ] || [ "$switch_cores" = "yes" ]; then
-        apk del sing-box iptables-nft 2>/dev/null
-    fi
-
-    refresh_system
-    echo "✅ 彻底洗地完毕！"
-}
-
-# ==================== 主菜单逻辑 ====================
-while true; do
-    echo "================================================="
-    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 1.12锁死版)"
-    echo "================================================="
-    echo "💡 请选择操作："
-    echo "1) 安装 / 升级 PassWall"
-    echo "2) 彻底卸载 PassWall"
-    echo "3) 安装 / 升级 HomeProxy (完美锁死 1.12.15 内核)"
-    echo "4) 彻底卸载 HomeProxy"
-    echo "5) 退出工具箱"
-    echo "-------------------------------------------------"
-    printf "请输入对应数字 [1-5]: "
-    read choice
-    case $choice in
-        1) install_passwall ; echo "" ;;
-        2) uninstall_passwall ; echo "" ;;
-        3) install_homeproxy ; echo "" ;;
-        4) uninstall_homeproxy ; echo "" ;;
-        5) echo "👋 已退出。" ; exit 0 ;;
-        *) echo "❌ 输入错误。" ; echo "" ; sleep 1 ;;
-    esac
-done
+    echo "
