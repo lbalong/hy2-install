@@ -143,8 +143,7 @@ uninstall_passwall() {
 # ==================== 核心模块 2：HomeProxy ====================
 install_homeproxy() {
     echo "-------------------------------------------------"
-    # 🎯 核心指标：锁定官方 1.12 系列最稳收官版本
-    HP_SINGBOX_VER="1.12.15" 
+    HP_SINGBOX_VER="1.12.22" 
     
     rm -f /etc/apk/repositories 2>/dev/null
     rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
@@ -173,23 +172,34 @@ install_homeproxy() {
 
     echo "📊 HomeProxy 版本看板："
     echo "   • 当前本地已安装: ${CURRENT_VER}"
-    echo "   • 战术目标内核: 强刷官方纯净 v${HP_SINGBOX_VER} 裸核心"
+    echo "   • 锁定降级内核版本: sing-box v${HP_SINGBOX_VER}"
     echo "   • 界面软件源可用: ${LATEST_VER}"
     echo "-------------------------------------------------"
 
-    printf "❓ 是否确认执行【1.12.15 裸内核强刷夺舍】满血安装流程？[y/N]: "
+    printf "❓ 是否确认执行【1.12.22 内核强制捆绑】满血安装流程？[y/N]: "
     read confirm
     switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
     
     if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
-        echo "🚀 🛠️ 第一步：顺水推舟，让系统把前端和官方自带内核顺畅安上..."
+        echo "🚀 正在强制拔除不听话的官方自带 1.13 高版本 Sing-Box..."
+        apk del luci-app-homeproxy sing-box 2>/dev/null
+        
+        echo "📥 正在从主干集群专线下载纯正 v${HP_SINGBOX_VER}-r1 物理内核包..."
+        curl -Lk "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/${ARCH}/passwall_packages/sing-box-${HP_SINGBOX_VER}-r1.apk" -o /tmp/sing-box-old.apk
+        
+        if [ ! -s /tmp/sing-box-old.apk ]; then
+            echo "❌ 错误：1.12.22 内核包下载失败，网络遭遇阻断，请重试。"
+            return 1
+        fi
+
+        echo "🚀 正在进行合并捆绑安装（强行用本地 1.12.22 内核肉搏顶在一线卡死依赖）..."
         apk --allow-untrusted \
             --repository "$LUCI_REPO" \
             --repository "$PACKAGES_REPO" \
-            add luci-app-homeproxy \
+            add /tmp/sing-box-old.apk \
+                luci-app-homeproxy \
                 luci-i18n-homeproxy-zh-cn \
                 luci-i18n-base-zh-cn \
-                sing-box \
                 ca-bundle \
                 libustream-openssl \
                 curl \
@@ -197,53 +207,16 @@ install_homeproxy() {
                 ip-full \
                 iptables-nft
                 
-        if [ $? -ne 0 ]; then
-            echo "❌ 错误：基础组件安装失败，请检查上方包管理器报错。"
-            return 1
-        fi
-
-        echo "🛑 ⚙️ 第二步：拦截刹车，强制暂缓后台代理服务..."
-        /etc/init.d/homeproxy stop 2>/dev/null
-
-        # 🧠 智能判定系统真实的硬件裸内核架构
-        if echo "$ARCH" | grep -q "x86_64"; then
-            SB_RAW_ARCH="amd64"
-        else
-            SB_RAW_ARCH="arm64"
-        fi
-
-        echo "📥 📡 第三步：从 SagerNet 官方发布库直连拉取 v${HP_SINGBOX_VER} 纯净裸核心..."
-        # 🌟 绝杀：直接下载官方编译打包好的纯净二进制文件（.tar.gz），没有任何网页重定向，直奔主题
-        curl -Lk "https://github.com/SagerNet/sing-box/releases/download/v${HP_SINGBOX_VER}/sing-box-${HP_SINGBOX_VER}-linux-${SB_RAW_ARCH}.tar.gz" -o /tmp/sb-core.tar.gz
-        
-        if [ $? -eq 0 ] && [ -s /tmp/sb-core.tar.gz ]; then
-            echo "📦 🧹 第四步：就地解压并执行【偷梁换柱】强行强刷覆盖..."
-            mkdir -p /tmp/sb-extract
-            tar -zxf /tmp/sb-core.tar.gz -C /tmp/sb-extract/
-            
-            # 精准定位解压出来的裸执行文件，暴力覆盖系统的默认路径
-            cp -f /tmp/sb-extract/sing-box-*/sing-box /usr/bin/sing-box
-            chmod +x /usr/bin/sing-box
-            
-            # 清理现场
-            rm -rf /tmp/sb-extract /tmp/sb-core.tar.gz 2>/dev/null
-            
-            # 最终对账验身
-            echo "-------------------------------------------------"
-            echo "📊 核心验身报告（当前系统骨子里跑的真实版本）："
-            /usr/bin/sing-box version | head -n 1
-            echo "-------------------------------------------------"
-            
+        if [ $? -eq 0 ]; then
             refresh_system
             echo "================================================="
-            echo "✅ 🎉 战术大获全胜！HomeProxy 与 1.12.15 裸内核已强行夺舍成功！"
+            echo "✅ 🎉 战术大获全胜！HomeProxy 与 1.12.22 内核已完美闭环锁死！"
             echo "================================================="
         else
-            echo "❌ 错误：1.12.15 官方内核包直连拉取失败，请检查软路由网络后重试。"
-            return 1
+            echo "❌ 安装失败，请查看上方 apk 报错。"
         fi
     else
-        echo "🛑 操作已取消。"
+        echo "🛑 操作已取消."
     fi
 }
 
@@ -260,7 +233,7 @@ uninstall_homeproxy() {
     rm -rf /etc/config/homeproxy /usr/share/homeproxy /var/etc/homeproxy /var/run/homeproxy* 2>/dev/null
     rm -f /etc/apk/repositories.d/homeproxy.list /etc/apk/repositories 2>/dev/null
     
-    printf "❓ 是否连同核心(Sing-Box)一起卸载清空？[y/N]: "
+    printf "❓ 是否连同独占核心(Sing-Box)一起卸载清空？[y/N]: "
     read del_cores
     switch_cores=$(echo "$del_cores" | tr '[:upper:]' '[:lower:]')
     
@@ -275,12 +248,12 @@ uninstall_homeproxy() {
 # ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
-    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 裸核强刷版)"
+    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 终极校准版)"
     echo "================================================="
     echo "💡 请选择操作："
     echo "1) 安装 / 升级 PassWall"
     echo "2) 彻底卸载 PassWall"
-    echo "3) 安装 / 升级 HomeProxy (物理强刷 1.12.15 裸内核)"
+    echo "3) 安装 / 升级 HomeProxy (强行锁死 1.12.22 内核)"
     echo "4) 彻底卸载 HomeProxy"
     echo "5) 退出工具箱"
     echo "-------------------------------------------------"
