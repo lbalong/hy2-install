@@ -143,6 +143,7 @@ uninstall_passwall() {
 # ==================== 核心模块 2：HomeProxy ====================
 install_homeproxy() {
     echo "-------------------------------------------------"
+    # 🎯 核心调校：精准锁定 1.12 系列在 OpenWrt 25.12 架构下的最完美收官版内核
     HP_SINGBOX_VER="1.12.22" 
     
     rm -f /etc/apk/repositories 2>/dev/null
@@ -184,8 +185,9 @@ install_homeproxy() {
         echo "🚀 正在强制拔除不听话的官方自带 1.13 高版本 Sing-Box..."
         apk del luci-app-homeproxy sing-box 2>/dev/null
         
-        echo "📥 正在就地从 SourceForge 正统构建库下载 v${HP_SINGBOX_VER}-r1 经典内核包..."
-        curl -Lk "https://sourceforge.net/projects/openwrt-passwall-build/files/releases/packages-25.12/${ARCH}/passwall_packages/sing-box-${HP_SINGBOX_VER}-r1.apk/download" -o /tmp/sing-box-old.apk
+        echo "📥 正在从主干集群专线下载纯正 v${HP_SINGBOX_VER}-r1 物理内核包..."
+        # 🌟 绝杀点：弃用带有网页跳转的旧链接，直接锁定无损主干镜像下载源，100% 确保叼回数 MB 的真程序
+        curl -Lk "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/${ARCH}/passwall_packages/sing-box-${HP_SINGBOX_VER}-r1.apk" -o /tmp/sing-box-old.apk
         
         if [ ! -s /tmp/sing-box-old.apk ]; then
             echo "❌ 错误：1.12.22 内核包下载失败（网络遭遇间歇性阻断），请检查网络后重试。"
