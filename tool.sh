@@ -165,12 +165,11 @@ uninstall_argon() {
     echo "✅ 🎉 还原完毕！"
 }
 
-# ==================== 核心模块 4：全自动多路温度扫描卡片 ====================
+# ==================== 核心模块 4：视觉瘦身版动态温度卡片 ====================
 install_web_thermal() {
     echo "-------------------------------------------------"
-    echo "🛠️ 正在全自动部署【全硬件多路温度自动对账面板】..."
+    echo "🛠️ 正在全自动部署【精简版硬件温度监控面板】..."
 
-    # 1. 批量下发安全核心豁免白名单 (覆盖 zone0 到 zone2 的类型与数值)
     cat << 'EOF' > /usr/share/rpcd/acl.d/luci-thermal.json
 {
 	"luci": {
@@ -188,14 +187,13 @@ install_web_thermal() {
 }
 EOF
 
-    # 2. 灌入异步多路动态扫描 JS 组件
     cat << 'EOF' > /www/luci-static/resources/view/status/include/15_thermal.js
 'use strict';
 'require baseclass';
 'require fs';
 
 return baseclass.extend({
-	title: '硬件温度监控 (Thermal)',
+	title: '硬件温度',
 
 	load: function() {
 		var zones = ['thermal_zone0', 'thermal_zone1', 'thermal_zone2'];
@@ -220,13 +218,12 @@ return baseclass.extend({
 
 			type = type.trim().toLowerCase();
 			var tempVal = (parseInt(temp.trim(), 10) / 1000).toFixed(1) + ' °C';
-			var displayName = '其他传感器 (' + type.toUpperCase() + ')';
+			var displayName = '其他 (' + type.toUpperCase() + ')';
 
-			// 🧠 智能辨识对账算法
 			if (type.indexOf('cpu') !== -1 || type.indexOf('soc') !== -1) {
-				displayName = 'CPU 核心温度';
+				displayName = 'CPU 核心';
 			} else if (type.indexOf('wifi') !== -1 || type.indexOf('wlan') !== -1 || type.indexOf('mt7') !== -1) {
-				displayName = 'WiFi 无线芯片温度';
+				displayName = 'WiFi 无线';
 			}
 
 			rows.push(E('div', { 'class': 'tr' }, [
@@ -239,7 +236,6 @@ return baseclass.extend({
 
 		return E('div', { 'class': 'cbi-section' }, [
 			E('div', { 'class': 'luci-card' }, [
-				E('h3', {}, '硬件温度实时对账看板'),
 				E('div', { 'class': 'table' }, rows)
 			])
 		]);
@@ -250,7 +246,7 @@ EOF
     /etc/init.d/rpcd restart 2>/dev/null
     refresh_system
     echo "================================================="
-    echo "✅ 🎉 报告老哥：多路全自动温度扫描插槽已完美激活！"
+    echo "✅ 🎉 报告老哥：超精简高颜值温度面板已重新注入！"
     echo "================================================="
 }
 
