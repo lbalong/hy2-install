@@ -88,13 +88,13 @@ install_passwall() {
     printf "❓ 是否确认执行安装/升级流程？[y/N]: "
     read confirm
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-        echo "🚀 正在闪电补齐缺失的 PassWall 外壳组件及 nftables 核心内核依赖..."
-        # 🌟 绝杀修复：强行并入 kmod-nft-socket 和 kmod-nft-tproxy，永绝后患
-        apk add --allow-untrusted luci-app-passwall luci-i18n-passwall-zh-cn geoview chinadns-ng kmod-nft-socket kmod-nft-tproxy
+        echo "🚀 正在闪电补齐 PassWall 外壳组件 (保持硬件加速免打扰状态)..."
+        # 🌟 绝杀优化：彻底移除容易破坏联发科硬件分流加速的 kmod-nft 依赖
+        apk add --allow-untrusted luci-app-passwall luci-i18n-passwall-zh-cn geoview chinadns-ng
         if [ $? -eq 0 ]; then
             optimize_ntp
             refresh_system
-            echo "✅ 🎉 PassWall 及全部防火墙内核组件闪电部署成功！"
+            echo "✅ 🎉 满血加速版 PassWall 补齐完毕！"
         else
             echo "❌ 安装失败。"
         fi
@@ -119,11 +119,12 @@ install_homeproxy() {
     echo "🚀 正在通过临时高级通道，接入专属 HomeProxy 核心外壳..."
     do_apk_update
     LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
-    apk --allow-untrusted --repository "$LUCI_REPO" add luci-app-homeproxy luci-i18n-homeproxy-zh-cn kmod-nft-socket kmod-nft-tproxy
+    # 🌟 绝杀优化：同样拔除拖累硬件转发速度的内核审查模块
+    apk --allow-untrusted --repository "$LUCI_REPO" add luci-app-homeproxy luci-i18n-homeproxy-zh-cn
     if [ $? -eq 0 ]; then
         optimize_ntp
         refresh_system
-        echo "✅ 🎉 基于 sing-box 1.12.17 的 HomeProxy 已满血复活！"
+        echo "✅ 🎉 基于 sing-box 1.12.17 的纯血版 HomeProxy 已满血复活！"
     else
         echo "❌ 安装失败。"
     fi
