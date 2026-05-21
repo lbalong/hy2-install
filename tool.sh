@@ -88,12 +88,13 @@ install_passwall() {
     printf "❓ 是否确认执行安装/升级流程？[y/N]: "
     read confirm
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-        echo "🚀 正在闪电补齐缺失的 PassWall 外壳组件..."
-        apk add --allow-untrusted luci-app-passwall luci-i18n-passwall-zh-cn geoview chinadns-ng
+        echo "🚀 正在闪电补齐缺失的 PassWall 外壳组件及 nftables 核心内核依赖..."
+        # 🌟 绝杀修复：强行并入 kmod-nft-socket 和 kmod-nft-tproxy，永绝后患
+        apk add --allow-untrusted luci-app-passwall luci-i18n-passwall-zh-cn geoview chinadns-ng kmod-nft-socket kmod-nft-tproxy
         if [ $? -eq 0 ]; then
             optimize_ntp
             refresh_system
-            echo "✅ 🎉 PassWall 闪电部署成功！"
+            echo "✅ 🎉 PassWall 及全部防火墙内核组件闪电部署成功！"
         else
             echo "❌ 安装失败。"
         fi
@@ -118,7 +119,7 @@ install_homeproxy() {
     echo "🚀 正在通过临时高级通道，接入专属 HomeProxy 核心外壳..."
     do_apk_update
     LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
-    apk --allow-untrusted --repository "$LUCI_REPO" add luci-app-homeproxy luci-i18n-homeproxy-zh-cn
+    apk --allow-untrusted --repository "$LUCI_REPO" add luci-app-homeproxy luci-i18n-homeproxy-zh-cn kmod-nft-socket kmod-nft-tproxy
     if [ $? -eq 0 ]; then
         optimize_ntp
         refresh_system
@@ -165,7 +166,7 @@ uninstall_argon() {
     echo "✅ 🎉 还原完毕！"
 }
 
-# ==================== 核心模块 4：视觉瘦身版动态温度卡片 ====================
+# ==================== 核心模块 4：精简版动态温度卡片 ====================
 install_web_thermal() {
     echo "-------------------------------------------------"
     echo "🛠️ 正在全自动部署【精简版硬件温度监控面板】..."
