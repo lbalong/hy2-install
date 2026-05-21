@@ -7,7 +7,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血域名证书完美对账版 V5.2"
+echo "    Hysteria 2 & TUIC v5 纯血域名证书完美对账版 V5.3"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (域名正规证书版)"
 echo " 2. 安装 TUIC v5    (域名正规证书版)"
@@ -29,15 +29,14 @@ fi
 init_env() {
     local target_port=$1
     echo "正在注入内核加速参数（优化 UDP 缓冲区）..."
-    cat <<EOF > /etc/sysctl.d/99-connectivity-tuning.conf
-net.core.rmem_max=8388608
-net.core.wmem_max=8388608
-EOF
+    printf "net.core.rmem_max=8388608\nnet.core.wmem_max=8388608\n" > /etc/sysctl.d/99-connectivity-tuning.conf
     sysctl --system >/dev/null 2>&1
 
+    echo "正在打通本地防火墙通信通道，精准放行端口: $target_port 与 80/tcp..."
     if command -v ufw > /dev/null; then
         ufw allow 80/tcp >/dev/null 2>&1
         ufw allow $target_port/udp >/dev/null 2>&1
+        ufw reload >/dev/null 2>&1
         ufw disable >/dev/null 2>&1
     fi
     if command -v firewall-cmd > /dev/null; then
@@ -83,7 +82,7 @@ get_domain() {
 # 共享级证书同步（绝不重复向 Let's Encrypt 刷单）
 sync_cert() {
     local target_dir=$1
-    get_domain  # 强制唤醒域名锁定
+    get_domain
     
     if [ -f "/etc/tuic/server.crt" ] && [ "$target_dir" != "/etc/tuic" ]; then
         echo "📥 检测到隔壁 TUIC 已持有正规证书，正在执行无缝复制复用..."
@@ -124,4 +123,53 @@ case $CHOICE in
         PORT=$(get_port)
         init_env "$PORT"
         mkdir -p /etc/hysteria
-        bash
+        bash <(curl -fsSL https://get.hy2.sh)
+        sync_cert "/etc/hysteria"
+        
+        # 🌟 绝杀优化：使用 printf 彻底替代 heredoc，免疫任何缩进带来的 EOF 语法错误
+        printf "listen: :%s\ntls:\n  cert: /etc/hysteria/server.crt\n  key: /etc/hysteria/server.key\nauth:\n  type: password\n  password: %s\n" "$PORT" "$PASSWORD" > /etc/hysteria/server.yaml
+
+        systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
+        clear
+        echo "🎉 Hysteria 2 纯血域名证书版完美通关！"
+        echo "👉 分享链接 (已锁死正规 SNI): hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_Domain_正规"
+        ;;
+
+    2)
+        PORT=$(get_port)
+        init_env "$PORT"
+        mkdir -p /etc/tuic
+        sync_cert "/etc/tuic"
+        
+        echo "🚀 正在下载 TUIC v5 服务端核心..."
+        TUIC_ARCH="x86_64-unknown-linux-gnu"
+        [ "$(uname -m)" = "aarch64" ] && TUIC_ARCH="aarch64-unknown-linux-gnu"
+        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
+        chmod +x /usr/local/bin/tuic-server
+
+        # 🌟 绝杀优化：使用 printf 替代 JSON 写入
+        printf '{\n  "server": "[::]:%s",\n  "users": {\n    "%s": "%s"\n  },\n  "certificate": "/etc/tuic/server.crt",\n  "private_key": "/etc/tuic/server.key",\n  "congestion_control": "bbr",\n  "alpn": ["h3"],\n  "udp_relay_ipv6": true,\n  "zero_rtt_handshake": false,\n  "auth_timeout": "3s"\n}\n' "$PORT" "$UUID" "$PASSWORD" > /etc/tuic/config.json
+
+        # 🌟 绝杀优化：使用 printf 替代 Service 写入
+        printf "[Unit]\nDescription=TUIC V5 Service\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nWorkingDirectory=/etc/tuic\nExecStart=/usr/local/bin/tuic-server -c /etc/tuic/config.json\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target\n" > /etc/systemd/system/tuic.service
+
+        systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
+        clear
+        echo "🎉 TUIC v5 纯血域名证书版部署成功！"
+        echo "👉 分享链接: tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_Domain_正规"
+        ;;
+
+    3)
+        echo "🧹 正在强行剥离所有后台进程与残留环境..."
+        systemctl stop hysteria-server tuic 2>/dev/null
+        systemctl disable hysteria-server tuic 2>/dev/null
+        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
+        systemctl daemon-reload
+        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server
+        rm -rf /etc/hysteria /etc/tuic /etc/vps_domain.txt
+        echo "✅ VPS 环境已彻底洗净！"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
