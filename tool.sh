@@ -143,7 +143,6 @@ uninstall_passwall() {
 # ==================== 核心模块 2：HomeProxy ====================
 install_homeproxy() {
     echo "-------------------------------------------------"
-    # 🎯 核心调校：精准锁定 1.12 系列在 OpenWrt 25.12 架构下的最完美收官版内核
     HP_SINGBOX_VER="1.12.22" 
     
     rm -f /etc/apk/repositories 2>/dev/null
@@ -171,4 +170,101 @@ install_homeproxy() {
         LATEST_VER="获取成功 (专线通道已就绪，可直接安装)"
     fi
 
-    echo "
+    echo "📊 HomeProxy 版本看板："
+    echo "   • 当前本地已安装: ${CURRENT_VER}"
+    echo "   • 锁定降级内核版本: sing-box v${HP_SINGBOX_VER}"
+    echo "   • 界面软件源可用: ${LATEST_VER}"
+    echo "-------------------------------------------------"
+
+    printf "❓ 是否确认执行【1.12.22 内核强制捆绑】满血安装流程？[y/N]: "
+    read confirm
+    switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
+    
+    if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
+        echo "🚀 正在强制拔除不听话的官方自带 1.13 高版本 Sing-Box..."
+        apk del luci-app-homeproxy sing-box 2>/dev/null
+        
+        echo "📥 正在就地从 SourceForge 正统构建库下载 v${HP_SINGBOX_VER}-r1 经典内核包..."
+        curl -Lk "https://sourceforge.net/projects/openwrt-passwall-build/files/releases/packages-25.12/${ARCH}/passwall_packages/sing-box-${HP_SINGBOX_VER}-r1.apk/download" -o /tmp/sing-box-old.apk
+        
+        if [ ! -s /tmp/sing-box-old.apk ]; then
+            echo "❌ 错误：1.12.22 内核包下载失败（网络遭遇间歇性阻断），请检查网络后重试。"
+            return 1
+        fi
+
+        echo "🚀 正在进行合并捆绑安装（强行用本地 1.12.22 内核肉搏顶在一线卡死依赖）..."
+        apk --allow-untrusted \
+            --repository "$LUCI_REPO" \
+            --repository "$PACKAGES_REPO" \
+            add /tmp/sing-box-old.apk \
+                luci-app-homeproxy \
+                luci-i18n-homeproxy-zh-cn \
+                luci-i18n-base-zh-cn \
+                ca-bundle \
+                libustream-openssl \
+                curl \
+                kmod-nft-tproxy \
+                ip-full \
+                iptables-nft
+                
+        if [ $? -eq 0 ]; then
+            refresh_system
+            echo "================================================="
+            echo "✅ 🎉 战术大获全胜！HomeProxy 与 1.12.22 内核已完美闭环锁死！"
+            echo "================================================="
+        else
+            echo "❌ 安装失败，请查看上方 apk 报错。"
+        fi
+    else
+        echo "🛑 操作已取消。"
+    fi
+}
+
+uninstall_homeproxy() {
+    echo "-------------------------------------------------"
+    echo "🗑️ 正在启动 HomeProxy 安全卸载程序..."
+    
+    if [ -f /etc/init.d/homeproxy ]; then
+        /etc/init.d/homeproxy stop 2>/dev/null
+        /etc/init.d/homeproxy disable 2>/dev/null
+    fi
+    
+    apk del luci-app-homeproxy luci-i18n-homeproxy-zh-cn
+    rm -rf /etc/config/homeproxy /usr/share/homeproxy /var/etc/homeproxy /var/run/homeproxy* 2>/dev/null
+    rm -f /etc/apk/repositories.d/homeproxy.list /etc/apk/repositories 2>/dev/null
+    
+    printf "❓ 是否连同独占核心(Sing-Box)一起卸载清空？[y/N]: "
+    read del_cores
+    switch_cores=$(echo "$del_cores" | tr '[:upper:]' '[:lower:]')
+    
+    if [ "$switch_cores" = "y" ] || [ "$switch_cores" = "yes" ]; then
+        apk del sing-box iptables-nft 2>/dev/null
+    fi
+
+    refresh_system
+    echo "✅ 彻底洗地完毕！"
+}
+
+# ==================== 主菜单逻辑 ====================
+while true; do
+    echo "================================================="
+    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 终极校准版)"
+    echo "================================================="
+    echo "💡 请选择操作："
+    echo "1) 安装 / 升级 PassWall"
+    echo "2) 彻底卸载 PassWall"
+    echo "3) 安装 / 升级 HomeProxy (强行锁死 1.12.22 内核)"
+    echo "4) 彻底卸载 HomeProxy"
+    echo "5) 退出工具箱"
+    echo "-------------------------------------------------"
+    printf "请输入对应数字 [1-5]: "
+    read choice
+    case $choice in
+        1) install_passwall ; echo "" ;;
+        2) uninstall_passwall ; echo "" ;;
+        3) install_homeproxy ; echo "" ;;
+        4) uninstall_homeproxy ; echo "" ;;
+        5) echo "👋 已退出。" ; exit 0 ;;
+        *) echo "❌ 输入错误。" ; echo "" ; sleep 1 ;;
+    esac
+done
