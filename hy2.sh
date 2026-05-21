@@ -7,22 +7,20 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 独立模块化全能一键脚本 V4.5"
+echo "    Hysteria 2 & TUIC v5 纯血域名证书版一键脚本 V5.0"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (纯 IP 自签名版)"
-echo " 2. 安装 Hysteria 2 (域名正规证书版)"
-echo " 3. 安装 TUIC v5    (纯 IP 自签名版)"
-echo " 4. 安装 TUIC v5    (域名正规证书版)"
-echo " 5. 彻底卸载服务并清空 VPS 环境"
+echo " 1. 安装 Hysteria 2 (域名正规证书版)"
+echo " 2. 安装 TUIC v5    (域名正规证书版)"
+echo " 3. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
-read -p "请选择需要调试安装的节点模块 [1-5]: " CHOICE
+read -p "请选择需要调试安装的节点模块 [1-3]: " CHOICE
 
 # 提取公共核心变量
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
 
-if [ -z "$IP" ] && [ "$CHOICE" -ne 5 ]; then
+if [ -z "$IP" ] && [ "$CHOICE" -ne 3 ]; then
   echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
   exit 1
 fi
@@ -30,7 +28,6 @@ fi
 # 核心防火墙与依赖放行函数
 init_env() {
     local target_port=$1
-    local is_tcp=$2
     
     echo "正在注入内核加速参数（优化 UDP 缓冲区）..."
     cat <<EOF > /etc/sysctl.d/99-connectivity-tuning.conf
@@ -39,20 +36,20 @@ net.core.wmem_max=8388608
 EOF
     sysctl --system >/dev/null 2>&1
 
-    echo "正在打通本地防火墙通信通道，精准放行端口: $target_port ..."
+    echo "正在打通本地防火墙通信通道，精准放行端口: $target_port 与 80/tcp..."
     if command -v ufw > /dev/null; then
-        [ "$is_tcp" = "true" ] && ufw allow 80/tcp >/dev/null 2>&1
+        ufw allow 80/tcp >/dev/null 2>&1
         ufw allow $target_port/udp >/dev/null 2>&1
         ufw reload >/dev/null 2>&1
         ufw disable >/dev/null 2>&1
     fi
     if command -v firewall-cmd > /dev/null; then
-        [ "$is_tcp" = "true" ] && firewall-cmd --zone=public --add-port=80/tcp --permanent >/dev/null 2>&1
+        firewall-cmd --zone=public --add-port=80/tcp --permanent >/dev/null 2>&1
         firewall-cmd --zone=public --add-port=$target_port/udp --permanent >/dev/null 2>&1
         firewall-cmd --reload >/dev/null 2>&1
     fi
     iptables -I INPUT -p udp --dport $target_port -j ACCEPT
-    [ "$is_tcp" = "true" ] && iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+    iptables -I INPUT -p tcp --dport 80 -j ACCEPT
 
     if command -v apt-get >/dev/null; then
       apt-get update && apt-get install -y curl openssl wget iptables socat cron
@@ -109,28 +106,7 @@ get_port() {
 case $CHOICE in
     1)
         PORT=$(get_port)
-        init_env "$PORT" "false"
-        mkdir -p /etc/hysteria
-        bash <(curl -fsSL https://get.hy2.sh)
-        openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=www.bing.com"
-        cat <<EOF > /etc/hysteria/config.yaml
-listen: :$PORT
-tls:
-  cert: /etc/hysteria/server.crt
-  key: /etc/hysteria/server.key
-auth:
-  type: password
-  password: $PASSWORD
-EOF
-        systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
-        clear
-        echo "🎉 Hysteria 2 自签名版部署成功！"
-        echo "👉 分享链接: hy2://$PASSWORD@$IP:$PORT?insecure=1&sni=www.bing.com#Hy2_IP_自签"
-        ;;
-        
-    2)
-        PORT=$(get_port)
-        init_env "$PORT" "true"
+        init_env "$PORT"
         mkdir -p /etc/hysteria
         bash <(curl -fsSL https://get.hy2.sh)
         request_cert "/etc/hysteria"
@@ -145,59 +121,13 @@ auth:
 EOF
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         clear
-        echo "🎉 Hysteria 2 正规证书版部署成功！"
+        echo "🎉 Hysteria 2 正规证书域名版部署成功！"
         echo "👉 分享链接: hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_Domain_正规"
         ;;
 
-    3)
+    2)
         PORT=$(get_port)
-        init_env "$PORT" "false"
-        mkdir -p /etc/tuic
-        openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/tuic/server.key -out /etc/tuic/server.crt -days 3650 -subj "/CN=www.bing.com"
-        
-        echo "🚀 正在下载 TUIC v5 服务端核心..."
-        TUIC_ARCH="x86_64-unknown-linux-gnu"
-        [ "$(uname -m)" = "aarch64" ] && TUIC_ARCH="aarch64-unknown-linux-gnu"
-        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
-        chmod +x /usr/local/bin/tuic-server
-
-        cat <<EOF > /etc/tuic/config.json
-{
-  "server": "[::]:$PORT",
-  "users": { "$UUID": "$PASSWORD" },
-  "certificate": "/etc/tuic/server.crt",
-  "private_key": "/etc/tuic/server.key",
-  "congestion_control": "bbr",
-  "alpn": ["h3"],
-  "udp_relay_ipv6": true,
-  "zero_rtt_handshake": false,
-  "auth_timeout": "3s"
-}
-EOF
-        cat <<EOF > /etc/systemd/system/tuic.service
-[Unit]
-Description=TUIC V5 Service
-After=network.target
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/etc/tuic
-ExecStart=/usr/local/bin/tuic-server -c /etc/tuic/config.json
-Restart=always
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-EOF
-        systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
-        clear
-        echo "🎉 TUIC v5 自签名版部署成功！"
-        echo "👉 客户端参数: 地址:$IP \| 端口:$PORT \| UUID:$UUID \| 密码:$PASSWORD \| ALPN:h3 \| 允许不安全:true"
-        echo "👉 分享链接: tuic://$UUID:$PASSWORD@$IP:$PORT?congestion_control=bbr&alpn=h3&sni=www.bing.com&allow_insecure=1#TUIC_IP_自签"
-        ;;
-
-    4)
-        PORT=$(get_port)
-        init_env "$PORT" "true"
+        init_env "$PORT"
         mkdir -p /etc/tuic
         request_cert "/etc/tuic"
         
@@ -236,12 +166,12 @@ WantedBy=multi-user.target
 EOF
         systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
         clear
-        echo "🎉 TUIC v5 正规证书版部署成功！"
+        echo "🎉 TUIC v5 正规证书域名版部署成功！"
         echo "👉 客户端参数: 地址:$DOMAIN \| 端口:$PORT \| UUID:$UUID \| 密码:$PASSWORD \| ALPN:h3"
         echo "👉 分享链接: tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_Domain_正规"
         ;;
 
-    5)
+    3)
         echo "🧹 正在强行剥离所有后台进程与残留环境..."
         systemctl stop hysteria-server tuic 2>/dev/null
         systemctl disable hysteria-server tuic 2>/dev/null
