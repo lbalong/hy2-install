@@ -36,9 +36,41 @@ install_passwall() {
     fi
 
     LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
+    
+    # 🌟 智能修复核心：如果上游官方源没有，提示用户并可选自动补齐第三方兼容源
     if [ -z "$LATEST_VER" ]; then
-        echo "❌ 错误：源内未发现 luci-app-passwall，请检查网络或更换镜像源。"
-        return 1
+        echo "❌ 警告：当前系统官方软件源内未发现 luci-app-passwall（官方源默认不收录代理插件）。"
+        echo "-------------------------------------------------"
+        echo "💡 我们可以尝试为您自动接入社区兼容的第三方扩展软件源。"
+        printf "❓ 是否允许脚本尝试为您配置第三方 PassWall 软件源？[y/N]: "
+        read add_repo
+        if [[ "$add_repo" =~ ^[Yy]$ ]]; then
+            # 自动提取当前 OpenWrt 25 底层的真实硬件架构
+            ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
+            echo "📥 正在向 /etc/apk/repositories 注入 25.x 兼容的扩展源..."
+            
+            # 备份原有的源文件防止意外
+            cp /etc/apk/repositories /etc/apk/repositories.bak 2>/dev/null
+            
+            # 智能注入含有代理组件与依赖核心的软件源
+            if ! grep -q "immortalwrt.*luci" /etc/apk/repositories; then
+                echo "https://downloads.immortalwrt.org/releases/25.12.0/packages/$ARCH/luci" >> /etc/apk/repositories
+                echo "https://downloads.immortalwrt.org/releases/25.12.0/packages/$ARCH/packages" >> /etc/apk/repositories
+                echo "https://downloads.immortalwrt.org/releases/25.12.0/packages/$ARCH/routing" >> /etc/apk/repositories
+                echo "✅ 扩展源注入完毕。"
+            else
+                echo "💡 检测到扩展源配置已存在，跳过注入。"
+            fi
+            
+            # 重新同步索引并二次获取版本
+            update_source
+            LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
+        fi
+        
+        if [ -z "$LATEST_VER" ]; then
+            echo "❌ 错误：依旧未发现 luci-app-passwall，请手动检查网络或更换有效的自定义镜像源。"
+            return 1
+        fi
     fi
 
     echo "📊 PassWall 版本看板："
