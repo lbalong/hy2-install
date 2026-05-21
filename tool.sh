@@ -10,8 +10,9 @@ fi
 SYS_TITLE="${DISTRIB_DESCRIPTION:-$DISTRIB_ID $DISTRIB_RELEASE}"
 
 update_source() {
-    echo "🔄 正在同步本地 APK 软件包索引 (apk update)..."
-    apk update
+    echo "🔄 正在同步本地 APK 软件包索引 (apk update --allow-untrusted)..."
+    # 🌟 终极修复：在更新索引源头强制挂载免检标记，强行吃下第三方源，绝不罢工
+    apk update --allow-untrusted
 }
 
 refresh_system() {
@@ -194,6 +195,7 @@ install_homeproxy() {
             echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/packages/packages.adb" >> "$HOMEPROXY_REPO_FILE"
             echo "✅ 扩展源配置完毕。"
             
+            # 重新同步索引（强制免检）
             update_source
             LATEST_VER=$(apk list luci-app-homeproxy 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-homeproxy-//')
         fi
