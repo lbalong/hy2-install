@@ -39,6 +39,34 @@ refresh_system() {
     [ -f /etc/init.d/passwall ] && /etc/init.d/passwall restart 2>/dev/null
 }
 
+# 🎯 3. 核心调校：NTP 时间服务器智能对账去重函数
+optimize_ntp() {
+    echo "-------------------------------------------------"
+    echo "⚙️ 正在智能调优 NTP 时间服务器名单..."
+    local modified=0
+    
+    # 逐个对账国内四大金刚时间源
+    for server in "ntp.aliyun.com" "ntp.tencent.com" "ntp.ntsc.ac.cn" "time.apple.com"; do
+        # ⚖️ 智能判别：如果当前配置库里已经包含了该域名，则绝对不重复追加
+        if ! uci get system.ntp.server 2>/dev/null | grep -q "$server"; then
+            uci add_list system.ntp.server="$server"
+            echo "➕ 成功追加国内优质时间源: $server"
+            modified=1
+        else
+            echo "ℹ️ 检测到系统已存在时间源: $server，自动跳过防止重复。"
+        fi
+    done
+    
+    # 只有发生真实修改时，才执行保存并重启服务，将影响降到最低
+    if [ "$modified" -eq 1 ]; then
+        uci commit system
+        /etc/init.d/system restart 2>/dev/null
+        echo "✅ 系统时间服务数据库已成功合闸生效！"
+    else
+        echo "✅ 系统原有的时间源配置非常完美，无需额外变动。"
+    fi
+}
+
 # ==================== 核心模块 1：PassWall ====================
 install_passwall() {
     echo "-------------------------------------------------"
@@ -118,9 +146,10 @@ install_passwall() {
                 iptables-nft
                 
         if [ $? -eq 0 ]; then
+            optimize_ntp
             refresh_system
             echo "================================================="
-            echo "✅ 🎉 恭喜老哥！PassWall（含 Hysteria 与 Geoview）已完美闭环通关！"
+            echo "✅ 🎉 恭喜老哥！PassWall 全套组件与时间同步优化已完美闭环通关！"
             echo "================================================="
         else
             echo "❌ 安装失败，请查看上方 apk 报错。"
@@ -176,6 +205,7 @@ install_argon() {
         uci set luci.main.mediaurlbase='/luci-static/argon'
         uci commit luci
         
+        optimize_ntp
         refresh_system
         echo "================================================="
         echo "✅ 🎉 颜值拉满！Argon 磨砂玻璃全套组件已成功接管你的软路由后台！"
@@ -207,10 +237,10 @@ uninstall_argon() {
 # ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
-    echo "  ${SYS_TITLE} 维护工具箱 (旗舰全功能版)"
+    echo "  ${SYS_TITLE} 维护工具箱 (旗舰智能对账版)"
     echo "================================================="
     echo "💡 请选择操作："
-    echo "1) 一键满血安装 / 升级 PassWall (含自动配源、Hysteria/Geoview 及汉化)"
+    echo "1) 一键满血安装 / 升级 PassWall (含自动配源、Hysteria/Geoview 及时间调优)"
     echo "2) 彻底安全卸载 PassWall (精细化深层洗地)"
     echo "3) 一键安装 / 强制激活大雕 Argon 磨砂主题 (带中文配置面板)"
     echo "4) 一键彻底卸载 Argon 主题 (完美丝滑无损恢复原厂皮肤)"
