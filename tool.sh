@@ -24,10 +24,9 @@ refresh_system() {
     /etc/init.d/nginx restart 2>/dev/null
     /etc/init.d/firewall restart 2>/dev/null
     [ -f /etc/init.d/passwall ] && /etc/init.d/passwall restart 2>/dev/null
-    [ -f /etc/init.d/homeproxy ] && /etc/init.d/homeproxy restart 2>/dev/null
 }
 
-# ==================== 核心模块 1：PassWall ====================
+# ==================== 核心模块：PassWall ====================
 install_passwall() {
     echo "-------------------------------------------------"
     rm -f /etc/apk/repositories 2>/dev/null
@@ -106,7 +105,7 @@ install_passwall() {
         if [ $? -eq 0 ]; then
             refresh_system
             echo "================================================="
-            echo "✅ 🎉 恭喜老哥！全套组件、大脑内核与汉化已完美闭环通关！"
+            echo "✅ 🎉 恭喜老哥！PassWall 全套组件与汉化已完美闭环通关！"
             echo "================================================="
         else
             echo "❌ 安装失败，请查看上方 apk 报错。"
@@ -137,134 +136,25 @@ uninstall_passwall() {
         apk del chinadns-ng xray-core iptables-nft 2>/dev/null
     fi
     refresh_system
-    echo "✅ 彻底洗地完毕！"
-}
-
-# ==================== 核心模块 2：HomeProxy ====================
-install_homeproxy() {
-    echo "-------------------------------------------------"
-    HP_SINGBOX_VER="1.12.22" 
-    
-    rm -f /etc/apk/repositories 2>/dev/null
-    rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
-    rm -f /etc/apk/repositories.d/homeproxy.list 2>/dev/null
-    
-    update_source
-    echo "-------------------------------------------------"
-    
-    ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
-    LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
-    PACKAGES_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/packages/packages.adb"
-
-    echo "🔍 正在读取本地已安装的 HomeProxy 组件版本..."
-    if apk info -e luci-app-homeproxy >/dev/null 2>&1; then
-        CURRENT_VER=$(apk list -I luci-app-homeproxy 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-homeproxy-//')
-    else
-        CURRENT_VER="未安装"
-    fi
-
-    echo "🔄 正在跨越安全组阻断，直接提取远端最新可用版本..."
-    LATEST_VER=$(apk --allow-untrusted --repository "$LUCI_REPO" list luci-app-homeproxy 2>/dev/null | grep "luci-app-homeproxy" | head -n 1 | awk '{print $1}' | sed 's/luci-app-homeproxy-//')
-    
-    if [ -z "$LATEST_VER" ]; then
-        LATEST_VER="获取成功 (专线通道已就绪，可直接安装)"
-    fi
-
-    echo "📊 HomeProxy 版本看板："
-    echo "   • 当前本地已安装: ${CURRENT_VER}"
-    echo "   • 锁定降级内核版本: sing-box v${HP_SINGBOX_VER}"
-    echo "   • 界面软件源可用: ${LATEST_VER}"
-    echo "-------------------------------------------------"
-
-    printf "❓ 是否确认执行【1.12.22 内核强制捆绑】满血安装流程？[y/N]: "
-    read confirm
-    switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
-    
-    if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
-        echo "🚀 正在强制拔除不听话的官方自带 1.13 高版本 Sing-Box..."
-        apk del luci-app-homeproxy sing-box 2>/dev/null
-        
-        echo "📥 正在从主干集群专线下载纯正 v${HP_SINGBOX_VER}-r1 物理内核包..."
-        curl -Lk "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/${ARCH}/passwall_packages/sing-box-${HP_SINGBOX_VER}-r1.apk" -o /tmp/sing-box-old.apk
-        
-        if [ ! -s /tmp/sing-box-old.apk ]; then
-            echo "❌ 错误：1.12.22 内核包下载失败，网络遭遇阻断，请重试。"
-            return 1
-        fi
-
-        echo "🚀 正在进行合并捆绑安装（强行用本地 1.12.22 内核肉搏顶在一线卡死依赖）..."
-        apk --allow-untrusted \
-            --repository "$LUCI_REPO" \
-            --repository "$PACKAGES_REPO" \
-            add /tmp/sing-box-old.apk \
-                luci-app-homeproxy \
-                luci-i18n-homeproxy-zh-cn \
-                luci-i18n-base-zh-cn \
-                ca-bundle \
-                libustream-openssl \
-                curl \
-                kmod-nft-tproxy \
-                ip-full \
-                iptables-nft
-                
-        if [ $? -eq 0 ]; then
-            refresh_system
-            echo "================================================="
-            echo "✅ 🎉 战术大获全胜！HomeProxy 与 1.12.22 内核已完美闭环锁死！"
-            echo "================================================="
-        else
-            echo "❌ 安装失败，请查看上方 apk 报错。"
-        fi
-    else
-        echo "🛑 操作已取消."
-    fi
-}
-
-uninstall_homeproxy() {
-    echo "-------------------------------------------------"
-    echo "🗑️ 正在启动 HomeProxy 安全卸载程序..."
-    
-    if [ -f /etc/init.d/homeproxy ]; then
-        /etc/init.d/homeproxy stop 2>/dev/null
-        /etc/init.d/homeproxy disable 2>/dev/null
-    fi
-    
-    apk del luci-app-homeproxy luci-i18n-homeproxy-zh-cn
-    rm -rf /etc/config/homeproxy /usr/share/homeproxy /var/etc/homeproxy /var/run/homeproxy* 2>/dev/null
-    rm -f /etc/apk/repositories.d/homeproxy.list /etc/apk/repositories 2>/dev/null
-    
-    printf "❓ 是否连同独占核心(Sing-Box)一起卸载清空？[y/N]: "
-    read del_cores
-    switch_cores=$(echo "$del_cores" | tr '[:upper:]' '[:lower:]')
-    
-    if [ "$switch_cores" = "y" ] || [ "$switch_cores" = "yes" ]; then
-        apk del sing-box iptables-nft 2>/dev/null
-    fi
-
-    refresh_system
-    echo "✅ 彻底洗地完毕！"
+    echo "✅ 彻底洗地完毕！系统环境已恢复纯净。"
 }
 
 # ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
-    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 终极校准版)"
+    echo "  ${SYS_TITLE} 维护工具箱 (PassWall 纯净版)"
     echo "================================================="
     echo "💡 请选择操作："
-    echo "1) 安装 / 升级 PassWall"
-    echo "2) 彻底卸载 PassWall"
-    echo "3) 安装 / 升级 HomeProxy (强行锁死 1.12.22 内核)"
-    echo "4) 彻底卸载 HomeProxy"
-    echo "5) 退出工具箱"
+    echo "1) 一键满血安装 / 升级 PassWall (含自动配源与全套汉化)"
+    echo "2) 彻底安全卸载 PassWall (精细化深层洗地)"
+    echo "3) 退出工具箱"
     echo "-------------------------------------------------"
-    printf "请输入对应数字 [1-5]: "
+    printf "请输入对应数字 [1-3]: "
     read choice
     case $choice in
         1) install_passwall ; echo "" ;;
         2) uninstall_passwall ; echo "" ;;
-        3) install_homeproxy ; echo "" ;;
-        4) uninstall_homeproxy ; echo "" ;;
-        5) echo "👋 已退出。" ; exit 0 ;;
-        *) echo "❌ 输入错误。" ; echo "" ; sleep 1 ;;
+        3) echo "👋 已退出。" ; exit 0 ;;
+        *) echo "❌ 输入错误，请输入数字 1 到 3。" ; echo "" ; sleep 1 ;;
     esac
 done
