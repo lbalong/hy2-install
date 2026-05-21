@@ -37,27 +37,28 @@ install_passwall() {
 
     LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     
-    # 🌟 智能修复核心：如果上游官方源没有，提示用户并可选自动补齐第三方兼容源
+    # 🌟 智能修复核心：专治官方原版源缺失代理插件的断水问题
     if [ -z "$LATEST_VER" ]; then
         echo "❌ 警告：当前系统官方软件源内未发现 luci-app-passwall（官方源默认不收录代理插件）。"
         echo "-------------------------------------------------"
-        echo "💡 我们可以尝试为您自动接入社区兼容的第三方扩展软件源。"
+        echo "💡 我们可以尝试为您自动接入社区高频维护、完美适配 APK v3 的 Snapshots 扩展仓储。"
         printf "❓ 是否允许脚本尝试为您配置第三方 PassWall 软件源？[y/N]: "
         read add_repo
         if [[ "$add_repo" =~ ^[Yy]$ ]]; then
-            # 自动提取当前 OpenWrt 25 底层的真实硬件架构
+            # 自动提取当前 OpenWrt 25 底层的真实硬件架构 (如 aarch64_cortex-a53)
             ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
-            echo "📥 正在向 /etc/apk/repositories 注入 25.x 兼容的扩展源..."
+            CUSTOM_REPO_FILE="/etc/apk/repositories.d/custom.list"
             
-            # 备份原有的源文件防止意外
-            cp /etc/apk/repositories /etc/apk/repositories.bak 2>/dev/null
+            # 确保标准的散装配置目录存在，并原地创建空白兜底文件，绝不报 grep 错误
+            mkdir -p /etc/apk/repositories.d
+            touch "$CUSTOM_REPO_FILE"
             
-            # 智能注入含有代理组件与依赖核心的软件源
-            if ! grep -q "immortalwrt.*luci" /etc/apk/repositories; then
-                echo "https://downloads.immortalwrt.org/releases/25.12.0/packages/$ARCH/luci" >> /etc/apk/repositories
-                echo "https://downloads.immortalwrt.org/releases/25.12.0/packages/$ARCH/packages" >> /etc/apk/repositories
-                echo "https://downloads.immortalwrt.org/releases/25.12.0/packages/$ARCH/routing" >> /etc/apk/repositories
-                echo "✅ 扩展源注入完毕。"
+            # 智能注入含有代理组件与依赖核心的 Snapshots 实时软件源
+            if ! grep -q "snapshots/packages/.*luci" "$CUSTOM_REPO_FILE"; then
+                echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci" >> "$CUSTOM_REPO_FILE"
+                echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/packages" >> "$CUSTOM_REPO_FILE"
+                echo "https://downloads.immortalwrt.org/snapshots/packages/$ARCH/routing" >> "$CUSTOM_REPO_FILE"
+                echo "✅ 扩展源已安全隔离写入: $CUSTOM_REPO_FILE"
             else
                 echo "💡 检测到扩展源配置已存在，跳过注入。"
             fi
@@ -120,7 +121,10 @@ uninstall_passwall() {
            /var/etc/passwall \
            /var/run/passwall* 2>/dev/null
     
-    # 3. 提供硬核选项：是否连同底层内核一起端掉
+    # 3. 清理可能注入的第三方自定义软件源配置（彻底洗地恢复纯净原厂）
+    rm -f /etc/apk/repositories.d/custom.list 2>/dev/null
+    
+    # 4. 提供硬核选项：是否连同底层内核一起端掉
     echo "-------------------------------------------------"
     printf "❓ 是否连同共享内核(Xray, Sing-Box, ChinaDNS-NG)一起卸载清空？[y/N]: "
     read del_cores
