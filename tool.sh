@@ -61,7 +61,6 @@ install_passwall() {
     echo "🔍 正在核对 PassWall 软件源物理接入状态..."
     
     local need_update=0
-    # ⚖️ 绝杀修复：直接写进 apk 核心主干配置文件，防漏看
     if ! grep -q "openwrt-passwall-build" "$REPO_FILE"; then
         echo "📥 正在向 /etc/apk/repositories 直接灌入 PassWall 扩展源..."
         mkdir -p /etc/apk/keys
@@ -73,26 +72,24 @@ install_passwall() {
         need_update=1
     fi
 
-    # 如果新加了源，必须刷新一次；否则如果从来没跑过 update，也跑一次
     if [ "$need_update" -eq 1 ] || [ "$HAS_UPDATED" -eq 0 ]; then
-        HAS_UPDATED=0  # 强制重置锁，确保新加的源能被同步到
+        HAS_UPDATED=0  
         do_apk_update
     fi
 
-    echo "🚀 正在为您闪电补齐缺失的 PassWall 外壳及独占特产组件..."
-    # 🌟 固件已集成重型内核，这里精准抓取外壳和固件没有的偏门组件，极速通关
+    echo "🚀 正在为您闪电补齐缺失的 PassWall 外壳及独占分流组件..."
+    # 🌟 绝杀优化：已遵照圣旨拿掉 hysteria，只抓极轻量的网页壳和 geoview，100% 杜绝卡死
     apk add --allow-untrusted \
             luci-app-passwall \
             luci-i18n-passwall-zh-cn \
             geoview \
-            chinadns-ng \
-            hysteria
+            chinadns-ng
             
     if [ $? -eq 0 ]; then
         optimize_ntp
         refresh_system
         echo "================================================="
-        echo "✅ 🎉 恭喜老哥！PassWall 组件已无损完美部署闭环！"
+        echo "✅ 🎉 恭喜老哥！PassWall 极速安装已无损完成！"
         echo "💡 提示：请进入 [DNS] 选项卡，将模式改为「使用 Sing-Box 本地内核高级分流」！"
         echo "================================================="
     else
@@ -108,16 +105,13 @@ uninstall_passwall() {
         /etc/init.d/passwall stop 2>/dev/null
     fi
     
-    # 🌟 绝杀保护：只切除外挂组件，绝对不碰你预装进固件的官方核心
     apk del luci-app-passwall luci-i18n-passwall-zh-cn geoview chinadns-ng hysteria 2>/dev/null
-    
-    # 清理残余配置与软件源
     sed -i '/openwrt-passwall-build/d' "$REPO_FILE" 2>/dev/null
     rm -f /etc/apk/keys/passwall.pub 2>/dev/null
     rm -rf /etc/config/passwall /usr/share/passwall /var/etc/passwall /var/run/passwall* 2>/dev/null
     
     refresh_system
-    echo "✅ 彻底洗地完毕！PassWall 组件已剥离干净。"
+    echo "✅ 彻底洗地完毕！"
 }
 
 # ==================== 核心模块 2：Argon 主题 ====================
@@ -125,7 +119,6 @@ install_argon() {
     echo "-------------------------------------------------"
     echo "🎨 正在准备部署大雕经典 Argon 磨砂玻璃全局主题..."
     
-    # 确保有基础索引
     do_apk_update
     
     LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
@@ -153,14 +146,11 @@ install_argon() {
 uninstall_argon() {
     echo "-------------------------------------------------"
     echo "🗑️ 正在启动 Argon 主题安全卸载程序..."
-    
-    echo "🔄 正在强制将网页外观主开关拨回原厂 Bootstrap..."
     uci set luci.main.mediaurlbase='/luci-static/bootstrap'
     uci commit luci
-    
     apk del luci-theme-argon luci-app-argon-config luci-i18n-argon-config-zh-cn 2>/dev/null
     refresh_system
-    echo "✅ 🎉 还原完毕！网页外观已恢复官方原生毛坯房风格。"
+    echo "✅ 🎉 还原完毕！"
 }
 
 # ==================== 主菜单逻辑 ====================
@@ -170,9 +160,9 @@ while true; do
     echo "================================================="
     echo "💡 请选择操作："
     echo "1) 一键闪电安装 PassWall (享用预装内核 + 自动分流优化)"
-    echo "2) 彻底安全卸载 PassWall (不伤集成内核)"
+    echo "2) 彻底安全卸载 PassWall"
     echo "3) 一键安装 / 强制激活大雕 Argon 磨砂主题"
-    echo "4) 一键彻底卸载 Argon 主题 (丝滑恢复原生皮肤)"
+    echo "4) 一键彻底卸载 Argon 主题"
     echo "5) 退出工具箱"
     echo "-------------------------------------------------"
     printf "请输入对应数字 [1-5]: "
