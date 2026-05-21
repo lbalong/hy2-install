@@ -117,21 +117,14 @@ install_homeproxy() {
     echo "-------------------------------------------------"
     echo "🚀 正在通过临时高级通道，接入专属 HomeProxy 核心外壳..."
     do_apk_update
-    
     LUCI_REPO="https://downloads.immortalwrt.org/snapshots/packages/$ARCH/luci/packages.adb"
-    
-    # 🌟 强灌原生 fw4 亲儿子 HomeProxy 面板及中文汉化
     apk --allow-untrusted --repository "$LUCI_REPO" add luci-app-homeproxy luci-i18n-homeproxy-zh-cn
-    
     if [ $? -eq 0 ]; then
         optimize_ntp
         refresh_system
-        echo "================================================="
-        echo "✅ 🎉 完美闭环！基于 sing-box 1.12.17 的 HomeProxy 已满血复活！"
-        echo "💡 提示：现在去刷新网页，【服务 -> HomeProxy】纯正原生面板一秒炸开！"
-        echo "================================================="
+        echo "✅ 🎉 基于 sing-box 1.12.17 的 HomeProxy 已满血复活！"
     else
-        echo "❌ 安装失败，请检查 apk 报错。"
+        echo "❌ 安装失败。"
     fi
 }
 
@@ -145,7 +138,73 @@ uninstall_homeproxy() {
     echo "✅ HomeProxy 已卸载干净。"
 }
 
-# ==================== 核心模块 3：Argon 主题 ====================
+# ==================== 核心模块 3：网页温度卡片 ====================
+install_web_thermal() {
+    echo "-------------------------------------------------"
+    echo "🛠️ 正在全自动为主页部署【原生温度对账面板】..."
+
+    # 1. 下发特许安全读取权限 (ACL 豁免白名单)
+    cat << 'EOF' > /usr/share/rpcd/acl.d/luci-thermal.json
+{
+	"luci-thermal": {
+		"description": "Allow LuCI to read CPU thermal zone info",
+		"read": {
+			"file": [
+				"/sys/class/thermal/thermal_zone0/temp"
+			]
+		}
+	}
+}
+EOF
+
+    # 2. 灌入现代 LuCI 独立卡片组件 (采用原生中英文字符串，防止汉化包打架)
+    cat << 'EOF' > /www/luci-static/resources/view/status/include/15_thermal.js
+'use strict';
+'require baseclass';
+'require fs';
+
+return baseclass.extend({
+	title: 'CPU 温度 (Thermal)',
+
+	load: function() {
+		return fs.read('/sys/class/thermal/thermal_zone0/temp').then(function(res) {
+			if (res && res.trim()) {
+				return (parseInt(res.trim(), 10) / 1000).toFixed(1) + ' °C';
+			}
+			return null;
+		}).catch(function() {
+			return null;
+		});
+	},
+
+	render: function(data) {
+		if (!data) return null;
+
+		return E('div', { 'class': 'cbi-section' }, [
+			E('div', { 'class': 'luci-card' }, [
+				E('h3', {}, 'CPU 核心温度'),
+				E('div', { 'class': 'table' }, [
+					E('div', { 'class': 'tr' }, [
+						E('div', { 'class': 'td left', 'width': '33%' }, '当前实时温度'),
+						E('div', { 'class': 'td left' }, data)
+					])
+				])
+			])
+		]);
+	}
+});
+EOF
+
+    # 3. 让安全大脑和网页守卫强制刷新
+    /etc/init.d/rpcd restart 2>/dev/null
+    refresh_system
+    echo "================================================="
+    echo "✅ 🎉 报告老哥：网页原生温度卡片已完美融入系统插槽！"
+    echo "💡 提示：现在直接刷新网页首页，奇迹瞬间发生！"
+    echo "================================================="
+}
+
+# ==================== 核心模块 4：Argon 主题 ====================
 install_argon() {
     echo "-------------------------------------------------"
     echo "🎨 正在准备部署大雕经典 Argon 磨砂玻璃全局主题..."
@@ -177,15 +236,16 @@ while true; do
     echo "  ${SYS_TITLE} 维护工具箱 (双剑合璧完美集成版)"
     echo "================================================="
     echo "💡 请选择操作："
-    echo "1) 一键闪电安装 PassWall (使用预装内核)"
+    echo "1) 一键闪电安装 PassWall"
     echo "2) 彻底安全卸载 PassWall"
-    echo "3) 一键闪电安装 HomeProxy (完美适配 1.12.17 内核)"
+    echo "3) 一键闪电安装 HomeProxy"
     echo "4) 彻底安全卸载 HomeProxy"
     echo "5) 一键安装 / 强制激活大雕 Argon 磨砂主题"
-    echo "6) 一键彻底卸载 Argon 主题"
-    echo "7) 退出工具箱"
+    echo "6) 一键网页原生注入 CPU 实时温度面板 (不伤系统)"
+    echo "7) 一键彻底卸载 Argon 主题"
+    echo "8) 退出工具箱"
     echo "-------------------------------------------------"
-    printf "请输入对应数字 [1-7]: "
+    printf "请输入对应数字 [1-8]: "
     read choice
     case $choice in
         1) install_passwall ; echo "" ;;
@@ -193,8 +253,9 @@ while true; do
         3) install_homeproxy ; echo "" ;;
         4) uninstall_homeproxy ; echo "" ;;
         5) install_argon ; echo "" ;;
-        6) uninstall_argon ; echo "" ;;
-        7) echo "👋 已退出。" ; exit 0 ;;
+        6) install_web_thermal ; echo "" ;;
+        7) uninstall_argon ; echo "" ;;
+        8) echo "👋 已退出。" ; exit 0 ;;
         *) echo "❌ 输入错误。" ; echo "" ; sleep 1 ;;
     esac
 done
