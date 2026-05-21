@@ -14,11 +14,14 @@ update_source() {
     apk update
 }
 
-refresh_luci() {
-    echo "🔄 正在强制清理网页菜单缓存并重载界面..."
+refresh_system() {
+    echo "🧹 正在强制清理网页菜单缓存并重载界面..."
     rm -rf /tmp/luci-indexcache /tmp/luci-modulecache 2>/dev/null
+    echo "🔄 正在重新唤醒防火墙、网页与代理服务核心..."
     /etc/init.d/uhttpd restart 2>/dev/null
     /etc/init.d/nginx restart 2>/dev/null
+    /etc/init.d/firewall restart 2>/dev/null
+    /etc/init.d/passwall restart 2>/dev/null
 }
 
 # ==================== PassWall 核心模块 ====================
@@ -42,7 +45,7 @@ install_passwall() {
 
     LATEST_VER=$(apk list luci-app-passwall 2>/dev/null | head -n 1 | awk '{print $1}' | sed 's/luci-app-passwall-//')
     
-    # 🌟 智能修复核心：完美驯服官方原版 OpenWrt 25 的硬核校验机制
+    # 🌟 智能适配核心：如果系统源没有代理插件（如官方原版 OpenWrt 25），自动启用专线注入
     if [ -z "$LATEST_VER" ]; then
         echo "❌ 警告：当前系统官方软件源内未发现 luci-app-passwall（官方源默认不收录代理插件）。"
         echo "-------------------------------------------------"
@@ -51,7 +54,7 @@ install_passwall() {
         read add_repo
         
         if [ "$add_repo" = "y" ] || [ "$add_repo" = "Y" ]; then
-            # 自动提取当前 OpenWrt 25 底层的真实硬件架构 (如 aarch64_cortex-a53)
+            # 自动提取当前固件底层的真实硬件架构 (如 aarch64_cortex-a53 / x86_64)
             ARCH=$(cat /etc/apk/arch 2>/dev/null || echo "aarch64_cortex-a53")
             CUSTOM_REPO_FILE="/etc/apk/repositories.d/customfeeds.list"
             
@@ -59,11 +62,11 @@ install_passwall() {
             mkdir -p /etc/apk/repositories.d
             mkdir -p /etc/apk/keys
             
-            # 🔐 核心超频 1：提前静默下发数字签名公钥，让原版 OpenWrt 25 给予 100% 官方合规信任
+            # 🔐 核心黑科技 1：提前静默下发数字签名公钥，让原版固件给予 100% 官方合规信任
             echo "🔑 正在同步下发专属第三方安全信任密钥..."
             curl -sLk "https://master.dl.sourceforge.net/project/openwrt-passwall-build/apk.pub" -o /etc/apk/keys/passwall.pub
             
-            # 🎯 核心超频 2：严格遵循 APK v3 规范，将 URL 尾部死死锁定到 /packages.adb 最终文件名！绝不让系统降级报错
+            # 🎯 核心黑科技 2：严格遵循 APK v3 规范，将 URL 尾部死死锁定到 /packages.adb 最终文件名！绝不让系统降级报错
             echo "📥 正在配置全套兼容的经典 Passwall 核心及前端组件专线..."
             echo "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/$ARCH/passwall_luci/packages.adb" > "$CUSTOM_REPO_FILE"
             echo "https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/$ARCH/passwall_packages/packages.adb" >> "$CUSTOM_REPO_FILE"
@@ -89,16 +92,38 @@ install_passwall() {
         echo "💡 提示：您当前拥有的已经是源内最新版本。"
     fi
 
-    printf "❓ 是否确认执行安装/升级流程？[y/N]: "
+    printf "❓ 是否确认执行满血安装/升级流程？[y/N]: "
     read confirm
     switch_confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
     
     if [ "$switch_confirm" = "y" ] || [ "$switch_confirm" = "yes" ]; then
-        echo "🚀 正在通过 APK 引擎安全部署 PassWall 核心及中文包..."
-        apk add luci-app-passwall luci-i18n-passwall-zh-cn
+        echo "🚀 正在全自动部署前端、汉化包、解密核心及防火墙内核抓包外挂..."
+        
+        # 📦 满血全家桶大一统安装：
+        # 1. 前端与汉化：luci-app-passwall luci-i18n-passwall-zh-cn
+        # 2. 系统主中文包：luci-i18n-base-zh-cn
+        # 3. 核心大脑：xray-core sing-box chinadns-ng
+        # 4. HTTPS订阅及网络基础：ca-bundle libustream-openssl curl
+        # 5. 透明代理与防火墙网钩（fw4/nftables兼容）：kmod-nft-tproxy ip-full iptables-nft
+        apk add luci-app-passwall \
+                luci-i18n-passwall-zh-cn \
+                luci-i18n-base-zh-cn \
+                xray-core \
+                sing-box \
+                chinadns-ng \
+                ca-bundle \
+                libustream-openssl \
+                curl \
+                kmod-nft-tproxy \
+                ip-full \
+                iptables-nft
+                
         if [ $? -eq 0 ]; then
-            refresh_luci
-            echo "✅ PassWall 部署成功！"
+            refresh_system
+            echo "================================================="
+            echo "✅ 🎉 恭喜老哥！全套组件、大脑内核与汉化已完美闭环通关！"
+            echo "💡 提示：现在去网页端即可享受丝滑的中文界面与满血透明代理！"
+            echo "================================================="
         else
             echo "❌ 安装失败，请查看上方 apk 报错。建议重装系统后在干净环境下运行。"
         fi
@@ -116,7 +141,7 @@ uninstall_passwall() {
         /etc/init.d/passwall stop 2>/dev/null
     fi
     
-    # 1. 拔除前端外壳
+    # 1. 拔除前端外壳及汉化
     apk del luci-app-passwall luci-i18n-passwall-zh-cn
     
     # 2. 彻底扬掉所有残留的用户配置文件、GeoIP分流规则库和历史死尸目录
@@ -140,24 +165,24 @@ uninstall_passwall() {
     
     if [ "$switch_cores" = "y" ] || [ "$switch_cores" = "yes" ]; then
         echo "💥 正在强制剥离底层核心组件..."
-        apk del chinadns-ng xray-core sing-box dns2tcp trojan-plus 2>/dev/null
+        apk del chinadns-ng xray-core sing-box iptables-nft 2>/dev/null
     else
         echo "💡 已保留底层共享内核，方便其他插件复用。"
     fi
 
-    refresh_luci
+    refresh_system
     echo "✅ 彻底洗地完毕！系统环境已恢复如初。"
 }
 
 # ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
-    echo "  ${SYS_TITLE} 维护工具箱 (25.12 APKv3 终极版)"
+    echo "  ${SYS_TITLE} 终极维护工具箱 (25.x 满血闭环版)"
     echo "================================================="
-    echo "底层包管理器: apk"
+    echo "底层包管理器: apk (v3)"
     echo "-------------------------------------------------"
     echo "💡 请选择需要执行的操作："
-    echo "1) 安装 / 升级 PassWall"
+    echo "1) 一键满血安装 / 升级 PassWall (含全套内核依赖及系统汉化)"
     echo "2) 彻底安全卸载 PassWall (含深层洗地)"
     echo "3) 退出工具箱"
     echo "-------------------------------------------------"
