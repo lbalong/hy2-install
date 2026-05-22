@@ -7,14 +7,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 🌟 严谨重构：开局第一步，雷打不动直接创建核心账本文件夹，绝不留空门
+# 🌟 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 终极逻辑严密版 V8.5"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (绝杀版)"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (支持端口与域名双重配置记忆)"
-echo " 2. 安装 TUIC v5    (支持端口与域名双重配置记忆)"
+echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
+echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复ing)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
@@ -115,16 +115,28 @@ get_domain() {
     done
 }
 
-# 智能端口锁定（支持按协议独立记忆）
+# 🌟 铁逻辑重构：全盘扫描本地官方配置，100% 榨出历史端口
 get_port() {
     local proto=$1
     local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
+    local cached_port=""
+    
+    # 优先读脚本账本
+    if [ -f "$cache_file" ]; then
+        cached_port=$(cat "$cache_file")
+    # 账本没有，直接去刮系统里正在运行的官方原装配置文件
+    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/config.yaml" ]; then
+        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/config.yaml | grep -oE '[0-9]+' | head -n 1)
+    elif [ "$proto" = "tuic" ] && [ -f "/etc/tuic/config.json" ]; then
+        cached_port=$(grep -oE '"server":\s*"[^"]+"' /etc/tuic/config.json | grep -oE '[0-9]+' | head -n 1)
+    fi
+    
     local default_p=$(shuf -i 10000-60000 -n 1)
     
-    if [ -f "$cache_file" ]; then
-        local cached_port=$(cat "$cache_file")
+    if [ -n "$cached_port" ]; then
         read -p "📋 检测到历史缓存 ${proto} 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
         if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
+            echo "$cached_port" > "$cache_file"
             echo "$cached_port"
             return 0
         fi
@@ -136,7 +148,7 @@ get_port() {
     echo "$final_port"
 }
 
-# 共享级证书同步
+# 🌟 铁逻辑重构：智能防御型证书管理，绝不卡死
 sync_cert() {
     local target_dir=$1
     get_domain
@@ -158,14 +170,27 @@ sync_cert() {
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     
-    # 🌟 绝杀修复：强行加上 --force 参数，直接砸碎 acme.sh 的证书跳过死锁
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --force
+    # 执行初次申请
+    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+    local issue_res=$?
     
-    if [ $? -eq 0 ]; then
+    # 【防御性兜底】如果 acme.sh 因为证书未过期选择 Skipping 报错退出
+    if [ $issue_res -ne 0 ]; then
+        if [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
+            echo "📋 侦测到本地签发历史中已存有合法合规证书文件，判定为缓存复用通车！"
+            issue_res=0
+        fi
+    fi
+    
+    if [ $issue_res -eq 0 ]; then
+        # 自动识别 ecc 目录或常规目录
+        local cert_dir="${DOMAIN}_ecc"
+        [ ! -d "/root/.acme.sh/$cert_dir" ] && cert_dir="$DOMAIN"
+        
         ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
-        echo "✅ 正规域名证书下发成功！"
+        echo "✅ 正规域名证书下发/复用成功！"
     else
-        echo "❌ 证书签发失败！"
+        echo "❌ 证书签发彻底失败，请检查 80 端口是否被物理占用！"
         exit 1
     fi
 }
@@ -271,18 +296,4 @@ EOF_TUIC_SERVICE
 
     4)
         echo "🧹 正在强行剥离所有后台进程与残留环境..."
-        systemctl stop hysteria-server tuic 2>/dev/null
-        systemctl disable hysteria-server tuic 2>/dev/null
-        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
-        systemctl daemon-reload
-        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
-        rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
-        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
-        ;;
-    *)
-        exit 1
-        ;;
-esac
-EOF_OUTER
-chmod +x /tmp/hy2_tuic.sh
-/tmp/hy2_tuic.sh
+        systemctl stop hysteria-server tuic 2>/dev
