@@ -1,4 +1,3 @@
-cat << 'EOF_OUTER' > /tmp/hy2_tuic.sh
 #!/bin/bash
 
 # 检查是否为 Root 用户
@@ -7,14 +6,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 🌟 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
+# 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (绝杀版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (GitHub 纯净版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
-echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复ing)"
+echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
@@ -115,16 +114,14 @@ get_domain() {
     done
 }
 
-# 🌟 铁逻辑重构：全盘扫描本地官方配置，100% 榨出历史端口
+# 全盘扫描本地官方配置，100% 榨出历史端口
 get_port() {
     local proto=$1
     local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
     local cached_port=""
     
-    # 优先读脚本账本
     if [ -f "$cache_file" ]; then
         cached_port=$(cat "$cache_file")
-    # 账本没有，直接去刮系统里正在运行的官方原装配置文件
     elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/config.yaml" ]; then
         cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/config.yaml | grep -oE '[0-9]+' | head -n 1)
     elif [ "$proto" = "tuic" ] && [ -f "/etc/tuic/config.json" ]; then
@@ -148,7 +145,7 @@ get_port() {
     echo "$final_port"
 }
 
-# 🌟 铁逻辑重构：智能防御型证书管理，绝不卡死
+# 智能防御型证书管理，绝不卡死
 sync_cert() {
     local target_dir=$1
     get_domain
@@ -170,11 +167,9 @@ sync_cert() {
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     
-    # 执行初次申请
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
     local issue_res=$?
     
-    # 【防御性兜底】如果 acme.sh 因为证书未过期选择 Skipping 报错退出
     if [ $issue_res -ne 0 ]; then
         if [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
             echo "📋 侦测到本地签发历史中已存有合法合规证书文件，判定为缓存复用通车！"
@@ -183,7 +178,6 @@ sync_cert() {
     fi
     
     if [ $issue_res -eq 0 ]; then
-        # 自动识别 ecc 目录或常规目录
         local cert_dir="${DOMAIN}_ecc"
         [ ! -d "/root/.acme.sh/$cert_dir" ] && cert_dir="$DOMAIN"
         
@@ -308,6 +302,3 @@ EOF_TUIC_SERVICE
         exit 1
         ;;
 esac
-EOF_OUTER
-chmod +x /tmp/hy2_tuic.sh
-/tmp/hy2_tuic.sh
