@@ -8,23 +8,39 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血域名证书最终完美版 V8.2"
+echo "    Hysteria 2 & TUIC v5 智能地理标签与快捷查询版 V8.3"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (修复文件名死锁)"
-echo " 2. 安装 TUIC v5    (域名正规证书版)"
-echo " 3. 彻底卸载服务并清空 VPS 环境"
+echo " 1. 安装 Hysteria 2 (自动识别服务商与地区)"
+echo " 2. 安装 TUIC v5    (自动识别服务商与地区)"
+echo " 3. 查看当前已建节点链接汇总"
+echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
-read -p "请选择需要安装的节点模块 [1-3]: " CHOICE
+read -p "请选择操作 [1-4]: " CHOICE
 
 # 提取公共核心变量
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
 
-if [ -z "$IP" ] && [ "$CHOICE" -ne 3 ]; then
+if [ -z "$IP" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
   echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
   exit 1
 fi
+
+# 智能获取服务商与地理位置标签
+get_geo_tag() {
+    local geo_info=$(curl -s --max-time 3 http://ip-api.com/json/)
+    if [ -n "$geo_info" ] && echo "$geo_info" | grep -q '"status":"success"'; then
+        local isp=$(echo "$geo_info" | grep -oE '"isp":"[^"]+"' | cut -d'"' -f4 | awk '{print $1}')
+        local country=$(echo "$geo_info" | grep -oE '"country":"[^"]+"' | cut -d'"' -f4 | tr -d ' ')
+        # 剔除特殊字符确保符合 URL 规范
+        isp=$(echo "$isp" | tr -cd 'A-Za-z0-9_')
+        country=$(echo "$country" | tr -cd 'A-Za-z0-9_')
+        echo "${isp}_${country}"
+    else
+        echo "VPS_Node"
+    fi
+}
 
 # 核心环境与系统防火墙一键物理洗地
 init_env() {
@@ -35,7 +51,7 @@ net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "正在物理清洗 RackNerd 内部防火墙残留（全开接单状态）..."
+    echo "正在物理清洗内部防火墙残留（全开接单状态）..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
     iptables -F && iptables -X
@@ -46,15 +62,34 @@ EOF_SYSCTL
     elif command -v yum >/dev/null; then
       yum makecache && yum install -y curl openssl wget iptables socat crontabs net-tools
     fi
+    mkdir -p /etc/hy2_tuic
+}
+
+# 部署专属快捷查询命令
+deploy_shortcut() {
+    cat << 'EOF_SHOW' > /usr/local/bin/shownode
+#!/bin/bash
+if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
+    clear
+    echo "=========================================================="
+    echo "📋 当前 VPS 已保存的节点链接汇总 (Hy2 vs TUIC)"
+    echo "=========================================================="
+    cat /etc/hy2_tuic/saved_links.txt
+    echo "=========================================================="
+else
+    echo "❌ 未找到已保存的节点信息，请先使用脚本创建节点！"
+fi
+EOF_SHOW
+    chmod +x /usr/local/bin/shownode
 }
 
 # 智能域名锁定
 get_domain() {
-    if [ -f "/etc/vps_domain.txt" ]; then
-        local cached_domain=$(cat /etc/vps_domain.txt)
+    if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
+        local cached_domain=$(cat /etc/hy2_tuic/vps_domain.txt)
         read -p "📋 检测到历史缓存域名 [$cached_domain]，是否直接复用？[Y/n]: " CONFIRM
         if [ "$CONFIRM" = "n" ] || [ "$CONFIRM" = "N" ]; then
-            rm -f /etc/vps_domain.txt
+            rm -f /etc/hy2_tuic/vps_domain.txt
         else
             DOMAIN=$cached_domain
             return 0
@@ -69,7 +104,7 @@ get_domain() {
         [ -z "$domain_ip" ] && domain_ip=$(getent ahosts "$DOMAIN" | awk '{print $1}' | head -n 1)
         
         if [ "$domain_ip" = "$IP" ]; then
-            echo "$DOMAIN" > /etc/vps_domain.txt
+            echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
             echo "✅ 对账成功！域名 [$DOMAIN] 已精准绑定本机 IP ($IP)"
             break
         else
@@ -125,7 +160,6 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 🌟 绝杀修复：账本名强行对齐官方标准 config.yaml
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -142,13 +176,17 @@ EOF_HY2_YAML
         chmod 600 /etc/hysteria/server.key
 
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
+        
+        # 动态计算标签并入账
+        GEO_TAG=$(get_geo_tag)
+        HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_${GEO_TAG}"
+        touch /etc/hy2_tuic/saved_links.txt
+        sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
+        echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
+        deploy_shortcut
+
         clear
-        echo "=========================================================="
-        echo "🎉 Hysteria 2 纯血域名证书版部署成功！"
-        echo "=========================================================="
-        echo "👉 分享链接 (直接导入干净的 v2rayN):"
-        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_RackNerd_完工"
-        echo "=========================================================="
+        /usr/local/bin/shownode
         ;;
 
     2)
@@ -194,28 +232,7 @@ WantedBy=multi-user.target
 EOF_TUIC_SERVICE
 
         systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
-        clear
-        echo "=========================================================="
-        echo "🎉 TUIC v5 纯血域名证书版部署成功！"
-        echo "=========================================================="
-        echo "👉 分享链接: tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_RackNerd_完工"
-        echo "=========================================================="
-        ;;
-
-    3)
-        echo "🧹 正在强行剥离所有后台进程与残留环境..."
-        systemctl stop hysteria-server tuic 2>/dev/null
-        systemctl disable hysteria-server tuic 2>/dev/null
-        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
-        systemctl daemon-reload
-        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server
-        rm -rf /etc/hysteria /etc/tuic /etc/vps_domain.txt
-        echo "✅ VPS 环境已彻底洗净！"
-        ;;
-    *)
-        exit 1
-        ;;
-esac
-EOF_OUTER
-chmod +x /tmp/hy2_tuic.sh
-/tmp/hy2_tuic.sh
+        
+        # 动态计算标签并入账
+        GEO_TAG=$(get_geo_tag)
+        TU
