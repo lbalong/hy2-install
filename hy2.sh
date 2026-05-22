@@ -296,4 +296,18 @@ EOF_TUIC_SERVICE
 
     4)
         echo "🧹 正在强行剥离所有后台进程与残留环境..."
-        systemctl stop hysteria-server tuic 2>/dev
+        systemctl stop hysteria-server tuic 2>/dev/null
+        systemctl disable hysteria-server tuic 2>/dev/null
+        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
+        systemctl daemon-reload
+        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
+        rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
+        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+EOF_OUTER
+chmod +x /tmp/hy2_tuic.sh
+/tmp/hy2_tuic.sh
