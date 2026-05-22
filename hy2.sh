@@ -7,11 +7,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# 🌟 严谨重构：开局第一步，雷打不动直接创建核心账本文件夹，绝不留空门
+mkdir -p /etc/hy2_tuic
+
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 端口记忆与极简指令版 V8.4"
+echo "    Hysteria 2 & TUIC v5 终极逻辑严密版 V8.5"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (支持端口与域名双重记忆)"
-echo " 2. 安装 TUIC v5    (支持端口与域名双重记忆)"
+echo " 1. 安装 Hysteria 2 (支持端口与域名双重配置记忆)"
+echo " 2. 安装 TUIC v5    (支持端口与域名双重配置记忆)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
@@ -61,7 +64,6 @@ EOF_SYSCTL
     elif command -v yum >/dev/null; then
       yum makecache && yum install -y curl openssl wget iptables socat crontabs net-tools
     fi
-    mkdir -p /etc/hy2_tuic
 }
 
 # 部署专属快捷查询命令 sd
@@ -155,7 +157,9 @@ sync_cert() {
     systemctl stop nginx apache2 2>/dev/null
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+    
+    # 🌟 绝杀修复：强行加上 --force 参数，直接砸碎 acme.sh 的证书跳过死锁
+    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --force
     
     if [ $? -eq 0 ]; then
         ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
