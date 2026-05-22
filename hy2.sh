@@ -8,9 +8,9 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血域名证书净化版 V8.1 (轻装无防火墙版)"
+echo "    Hysteria 2 & TUIC v5 纯血域名证书最终完美版 V8.2"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (域名正规证书版)"
+echo " 1. 安装 Hysteria 2 (修复文件名死锁)"
 echo " 2. 安装 TUIC v5    (域名正规证书版)"
 echo " 3. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
@@ -26,14 +26,20 @@ if [ -z "$IP" ] && [ "$CHOICE" -ne 3 ]; then
   exit 1
 fi
 
-# 核心环境初始化（已完全剔除本地防火墙干预命令）
+# 核心环境与系统防火墙一键物理洗地
 init_env() {
-    echo "正在注入内核加速参数（优化 UDP 缓冲区）..."
+    echo "正在优化内核 UDP 缓冲区..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
 net.core.rmem_max=8388608
 net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
+
+    echo "正在物理清洗 RackNerd 内部防火墙残留（全开接单状态）..."
+    if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
+    if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
+    iptables -F && iptables -X
+    iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
     if command -v apt-get >/dev/null; then
       apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools
@@ -56,7 +62,7 @@ get_domain() {
     fi
 
     while true; do
-        read -p "👉 请输入您当前最新的完整域名 (例如 us2.099889.xyz): " DOMAIN
+        read -p "👉 请输入您当前解析好的完整域名 (例如 us2.099889.xyz): " DOMAIN
         if [ -z "$DOMAIN" ]; then continue; fi
         echo "🔄 正在请求多路公网 DNS 校验域名解析..."
         local domain_ip=$(curl -s4 "https://1.1.1.1/dns-query?name=$DOMAIN" -H "accept: application/dns-json" | grep -oE '"data":"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"' | head -n 1 | awk -F'"' '{print $4}')
@@ -90,7 +96,7 @@ sync_cert() {
         return 0
     fi
 
-    echo "🔄 正在唤醒 acme.sh 并向 Let's Encrypt 申请正式合规证书..."
+    echo "🔄 正在向 Let's Encrypt 申请正式合规证书..."
     systemctl stop nginx apache2 2>/dev/null
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
@@ -111,16 +117,16 @@ get_port() {
     echo "${INPUT_PORT:-$default_p}"
 }
 
-# ==================== 核心执行控制 ====================
 case $CHOICE in
     1)
         PORT=$(get_port)
-        init_env "$PORT"
+        init_env
         mkdir -p /etc/hysteria
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        cat << EOF_HY2_YAML > /etc/hysteria/server.yaml
+        # 🌟 绝杀修复：账本名强行对齐官方标准 config.yaml
+        cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
   cert: /etc/hysteria/server.crt
@@ -140,13 +146,14 @@ EOF_HY2_YAML
         echo "=========================================================="
         echo "🎉 Hysteria 2 纯血域名证书版部署成功！"
         echo "=========================================================="
-        echo "👉 分享链接: hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_Domain_正规"
+        echo "👉 分享链接 (直接导入干净的 v2rayN):"
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_RackNerd_完工"
         echo "=========================================================="
         ;;
 
     2)
         PORT=$(get_port)
-        init_env "$PORT"
+        init_env
         mkdir -p /etc/tuic
         sync_cert "/etc/tuic"
         
@@ -156,7 +163,6 @@ EOF_HY2_YAML
         wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
         chmod +x /usr/local/bin/tuic-server
 
-        # 🌟 满血去噪版：改听稳健的 0.0.0.0，彻底剔除导致内核暴毙的无效参数
         cat << EOF_TUIC_JSON > /etc/tuic/config.json
 {
   "server": "0.0.0.0:$PORT",
@@ -192,14 +198,7 @@ EOF_TUIC_SERVICE
         echo "=========================================================="
         echo "🎉 TUIC v5 纯血域名证书版部署成功！"
         echo "=========================================================="
-        echo "👉 地址 (Server):   $DOMAIN"
-        echo "👉 端口 (Port):     $PORT"
-        echo "👉 用户UUID (UUID): $UUID"
-        echo "👉 密码 (Password): $PASSWORD"
-        echo "👉 拥塞控制算法:     bbr"
-        echo "👉 应用层协议(ALPN): h3"
-        echo "--------------------------------------------------------"
-        echo "👉 分享链接: tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_Domain_正规"
+        echo "👉 分享链接: tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_RackNerd_完工"
         echo "=========================================================="
         ;;
 
