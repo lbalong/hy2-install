@@ -8,11 +8,11 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 智能地理标签与快捷查询版 V8.3"
+echo "    Hysteria 2 & TUIC v5 端口记忆与极简指令版 V8.4"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (自动识别服务商与地区)"
-echo " 2. 安装 TUIC v5    (自动识别服务商与地区)"
-echo " 3. 查看当前已建节点链接汇总"
+echo " 1. 安装 Hysteria 2 (支持端口与域名双重记忆)"
+echo " 2. 安装 TUIC v5    (支持端口与域名双重记忆)"
+echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
@@ -33,7 +33,6 @@ get_geo_tag() {
     if [ -n "$geo_info" ] && echo "$geo_info" | grep -q '"status":"success"'; then
         local isp=$(echo "$geo_info" | grep -oE '"isp":"[^"]+"' | cut -d'"' -f4 | awk '{print $1}')
         local country=$(echo "$geo_info" | grep -oE '"country":"[^"]+"' | cut -d'"' -f4 | tr -d ' ')
-        # 剔除特殊字符确保符合 URL 规范
         isp=$(echo "$isp" | tr -cd 'A-Za-z0-9_')
         country=$(echo "$country" | tr -cd 'A-Za-z0-9_')
         echo "${isp}_${country}"
@@ -65,9 +64,9 @@ EOF_SYSCTL
     mkdir -p /etc/hy2_tuic
 }
 
-# 部署专属快捷查询命令
+# 部署专属快捷查询命令 sd
 deploy_shortcut() {
-    cat << 'EOF_SHOW' > /usr/local/bin/shownode
+    cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
@@ -80,7 +79,7 @@ else
     echo "❌ 未找到已保存的节点信息，请先使用脚本创建节点！"
 fi
 EOF_SHOW
-    chmod +x /usr/local/bin/shownode
+    chmod +x /usr/local/bin/sd
 }
 
 # 智能域名锁定
@@ -112,6 +111,27 @@ get_domain() {
             echo "=========================================="
         fi
     done
+}
+
+# 智能端口锁定（支持按协议独立记忆）
+get_port() {
+    local proto=$1
+    local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
+    local default_p=$(shuf -i 10000-60000 -n 1)
+    
+    if [ -f "$cache_file" ]; then
+        local cached_port=$(cat "$cache_file")
+        read -p "📋 检测到历史缓存 ${proto} 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
+        if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
+            echo "$cached_port"
+            return 0
+        fi
+    fi
+    
+    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
+    local final_port="${INPUT_PORT:-$default_p}"
+    echo "$final_port" > "$cache_file"
+    echo "$final_port"
 }
 
 # 共享级证书同步
@@ -146,15 +166,9 @@ sync_cert() {
     fi
 }
 
-get_port() {
-    local default_p=$(shuf -i 10000-60000 -n 1)
-    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
-    echo "${INPUT_PORT:-$default_p}"
-}
-
 case $CHOICE in
     1)
-        PORT=$(get_port)
+        PORT=$(get_port "hy2")
         init_env
         mkdir -p /etc/hysteria
         bash <(curl -fsSL https://get.hy2.sh)
@@ -177,7 +191,6 @@ EOF_HY2_YAML
 
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
-        # 动态计算标签并入账
         GEO_TAG=$(get_geo_tag)
         HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
@@ -186,11 +199,11 @@ EOF_HY2_YAML
         deploy_shortcut
 
         clear
-        /usr/local/bin/shownode
+        /usr/local/bin/sd
         ;;
 
     2)
-        PORT=$(get_port)
+        PORT=$(get_port "tuic")
         init_env
         mkdir -p /etc/tuic
         sync_cert "/etc/tuic"
@@ -233,6 +246,39 @@ EOF_TUIC_SERVICE
 
         systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
         
-        # 动态计算标签并入账
         GEO_TAG=$(get_geo_tag)
-        TU
+        TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
+        touch /etc/hy2_tuic/saved_links.txt
+        sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
+        echo "$TUIC_LINK" >> /etc/hy2_tuic/saved_links.txt
+        deploy_shortcut
+
+        clear
+        /usr/local/bin/sd
+        ;;
+
+    3)
+        if [ -f "/usr/local/bin/sd" ]; then
+            /usr/local/bin/sd
+        else
+            echo "❌ 未找到已保存的节点信息！"
+        fi
+        ;;
+
+    4)
+        echo "🧹 正在强行剥离所有后台进程与残留环境..."
+        systemctl stop hysteria-server tuic 2>/dev/null
+        systemctl disable hysteria-server tuic 2>/dev/null
+        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
+        systemctl daemon-reload
+        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
+        rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
+        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+EOF_OUTER
+chmod +x /tmp/hy2_tuic.sh
+/tmp/hy2_tuic.sh
