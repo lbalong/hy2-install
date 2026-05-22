@@ -8,7 +8,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血域名证书净化版 V7.1 (修复版)"
+echo "    Hysteria 2 & TUIC v5 纯血域名证书净化版 V8.1 (轻装无防火墙版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (域名正规证书版)"
 echo " 2. 安装 TUIC v5    (域名正规证书版)"
@@ -26,29 +26,14 @@ if [ -z "$IP" ] && [ "$CHOICE" -ne 3 ]; then
   exit 1
 fi
 
-# 核心环境与防火墙初始化
+# 核心环境初始化（已完全剔除本地防火墙干预命令）
 init_env() {
-    local target_port=$1
     echo "正在注入内核加速参数（优化 UDP 缓冲区）..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
 net.core.rmem_max=8388608
 net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
-
-    echo "正在打通本地防火墙通信通道，精准放行端口: $target_port 与 80/tcp..."
-    if command -v ufw > /dev/null; then
-        ufw allow 80/tcp >/dev/null 2>&1
-        ufw allow $target_port/udp >/dev/null 2>&1
-        ufw disable >/dev/null 2>&1
-    fi
-    if command -v firewall-cmd > /dev/null; then
-        firewall-cmd --zone=public --add-port=80/tcp --permanent >/dev/null 2>&1
-        firewall-cmd --zone=public --add-port=$target_port/udp --permanent >/dev/null 2>&1
-        firewall-cmd --reload >/dev/null 2>&1
-    fi
-    iptables -I INPUT -p udp --dport $target_port -j ACCEPT
-    iptables -I INPUT -p tcp --dport 80 -j ACCEPT
 
     if command -v apt-get >/dev/null; then
       apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools
@@ -135,7 +120,6 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 🌟 移除单引号，允许变量正常解析替换
         cat << EOF_HY2_YAML > /etc/hysteria/server.yaml
 listen: :$PORT
 tls:
@@ -172,24 +156,20 @@ EOF_HY2_YAML
         wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
         chmod +x /usr/local/bin/tuic-server
 
-        # 🌟 移除单引号，允许变量正常解析替换
+        # 🌟 满血去噪版：改听稳健的 0.0.0.0，彻底剔除导致内核暴毙的无效参数
         cat << EOF_TUIC_JSON > /etc/tuic/config.json
 {
-  "server": "[::]:$PORT",
+  "server": "0.0.0.0:$PORT",
   "users": {
     "$UUID": "$PASSWORD"
   },
   "certificate": "/etc/tuic/server.crt",
   "private_key": "/etc/tuic/server.key",
   "congestion_control": "bbr",
-  "alpn": ["h3"],
-  "udp_relay_ipv6": true,
-  "zero_rtt_handshake": false,
-  "auth_timeout": "3s"
+  "alpn": ["h3"]
 }
 EOF_TUIC_JSON
 
-        # 🌟 移除单引号，允许变量正常解析替换
         cat << EOF_TUIC_SERVICE > /etc/systemd/system/tuic.service
 [Unit]
 Description=TUIC V5 Service
