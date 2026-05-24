@@ -6,14 +6,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "=========================================="
-echo " VLESS + REALITY + Vision 域名对齐满血版"
-echo "=========================================="
+echo "=========================================================="
+echo " VLESS + REALITY + Vision 域名对齐+双轨测速满血完全体 V9.0"
+echo "=========================================================="
 
-# 1. 获取 VPS 本机公网 IP
+# 1. 获取 VPS 本机公网 IP 并智能识别服务器厂商
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
 if [ -z "$IP" ]; then
-  echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
+  echo "❌ 错误：无法获取服务器公网 IP，请检查 network 连接。"
   exit 1
 fi
 
@@ -64,9 +64,9 @@ echo "------------------------------------------"
 read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT
 if [ -z "$PORT" ]; then PORT=$DEFAULT_PORT; fi
 
-# 3. 注入内核速度补丁 (BBR + 16MB 巨型缓冲区)
-echo "🚀 正在向内核注入 TCP 速度补丁..."
-cat <<EOF > /etc/sysctl.d/99-vless-reality.conf
+# 3. 核心速度黑科技：BBR + 16MB 巨型缓冲区 + TCP Fast Open
+echo "🚀 正在向内核注入网络超频补丁 (BBR + 16MB缓存 + TFO)..."
+cat <<EOF > /etc/sysctl.d/99-vless-reality-tuning.conf
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.core.rmem_max=16772160
@@ -80,7 +80,8 @@ net.ipv4.tcp_fastopen=3
 EOF
 sysctl --system >/dev/null 2>&1
 
-# 4. 防火墙优化
+# 4. 防火墙一键清洗并精准放行
+echo "正在清空本地防火墙残留规则并建立通信通道..."
 if command -v ufw > /dev/null; then ufw allow $PORT/tcp >/dev/null 2>&1 && ufw disable >/dev/null 2>&1; fi
 if command -v firewall-cmd > /dev/null; then firewall-cmd --zone=public --add-port=$PORT/tcp --permanent >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1; fi
 iptables -F && iptables -X
@@ -89,13 +90,13 @@ iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
 
 # 5. 安装基础依赖与最新版 Xray 核心
 if command -v apt-get >/dev/null; then
-  apt-get update && apt-get install -y curl wget jq uuid-runtime iptables
+  apt-get update && apt-get install -y curl wget jq uuid-runtime iptables socat
 elif command -v yum >/dev/null; then
-  yum makecache && yum install -y curl wget jq uuid-runtime iptables
+  yum makecache && yum install -y curl wget jq uuid-runtime iptables socat
 fi
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-# 6. 核心黑科技：动态生成 REALITY 密钥对与参数（不需要申请个人证书）
+# 6. 核心黑科技：动态生成 REALITY 密钥对与参数（告别传统 acme 申请）
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 XRAY_KEYS=$(/usr/local/bin/xray x25519)
@@ -154,33 +155,4 @@ EOF
 
 # 8. 修复权限并启动服务
 chmod 644 /usr/local/etc/xray/config.json
-chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null
-systemctl daemon-reload && systemctl enable xray && systemctl restart xray
-
-# 9. 固化快捷查询命令 【vless】（完美用域名替换原始 IP）
-cat << EOF > /usr/local/bin/vless
-#!/bin/bash
-echo "=========================================="
-echo "📋 您的 VLESS-Reality 域名满血版参数"
-echo "=========================================="
-echo "协议 (Protocol):   VLESS"
-echo "地址 (Address):    $DOMAIN"
-echo "端口 (Port):       $PORT"
-echo "用户ID (UUID):     $UUID"
-echo "流控 (Flow):       xtls-rprx-vision"
-echo "传输协议 (Net):    tcp"
-echo "加密 (Security):   reality"
-echo "伪装域名 (SNI):    $DEST_SERVER"
-echo "公钥 (PublicKey):  $PUBLIC_KEY"
-echo "短 ID (Short ID):  $SHORT_ID"
-echo "指纹 (fp):         chrome"
-echo "=========================================="
-echo "👇 通用一键导入链接 (已无缝绑定您的域名)："
-echo "vless://$UUID@$DOMAIN:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&flow=xtls-rprx-vision#Reality_Domain_$PORT"
-echo "=========================================="
-EOF
-chmod +x /usr/local/bin/vless
-
-# 10. 完工输出
-clear
-/usr/local/bin/vless
+chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null
