@@ -205,9 +205,6 @@ tls:
 auth:
   type: password
   password: $PASSWORD
-bandwidth:
-  up: 40 mbps
-  down: 400 mbps
 EOF_HY2_YAML
 
         chown -R hysteria:hysteria /etc/hysteria
