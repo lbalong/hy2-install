@@ -1,4 +1,4 @@
-anytls:装anttls协议节点
+anytls:装anytls协议节点
 
 hy2:装hy2协议节点，带域名和不带域名可选
 
