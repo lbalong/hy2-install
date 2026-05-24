@@ -6,10 +6,6 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo "=========================================================="
-echo " VLESS + Reality 纯净 IP / 域名双模合一终极账本 (带配置记忆)"
-echo "=========================================================="
-
 # 1. 预先读取历史对账文件
 CONFIG_FILE="/etc/sd_vless_last.conf"
 if [ -f "$CONFIG_FILE" ]; then
@@ -23,11 +19,16 @@ if [ -z "$IP" ]; then
   exit 1
 fi
 
-# 3. 菜单选择
+echo "=========================================================="
+echo " VLESS + Reality 纯净 IP / 域名双模合一终极账本 (带配置记忆)"
+echo "=========================================================="
+
+# 3. 🌟 核心菜单（就是这里！确保复制完整）
 echo "👉 请选择你要部署的版本："
 echo " 1. 安装 VLESS + Reality 纯 IP 版 (v2rayN 测速绝对不报错)"
 echo " 2. 安装 VLESS + Reality 域名版 (防封锁首选，测速需在客户端将核心切为 Xray)"
-read -p "请选择 (直接回车默认使用上次或 1): " OPTION
+echo "----------------------------------------------------------"
+read -p "请选择 [1 或 2] (直接回车默认使用上次或 1): " OPTION
 [ -z "$OPTION" ] && OPTION=${LAST_OPTION:-"1"}
 
 # 4. 根据模式收集变量（带自动检测和回显）
@@ -108,7 +109,7 @@ elif command -v yum >/dev/null; then
 fi
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-# 9. 核心参数硬编码（使用测速绝不报错的固定公私钥组合）
+# 9. 核心参数硬编码
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 PRIVATE_KEY="OHiRUZqq1Yfo5JA6FataI9RzKTE7WPrUoeteBLUpTWc"
@@ -164,14 +165,14 @@ cat <<EOF > /usr/local/etc/xray/config.json
 }
 EOF
 
-# 11. 强破权限并重启服务
+# 11. 重启服务
 chmod 644 /usr/local/etc/xray/config.json
 chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null
 systemctl daemon-reload && systemctl enable xray && systemctl restart xray
 
 sleep 2
 
-# 12. 🌟 核心升级：强行在本地生成全局固化查询命令 【sd】
+# 12. 🌟 固化快捷查询命令 【sd】
 cat << 'EOF' > /usr/local/bin/sd
 #!/bin/bash
 CONFIG_FILE="/etc/sd_vless_last.conf"
@@ -204,4 +205,7 @@ else
 fi
 echo "=========================================="
 EOF
-chmod +x /usr/local/
+chmod +x /usr/local/bin/sd
+
+# 13. 输出成果
+/usr/local/bin/sd
