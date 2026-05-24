@@ -108,7 +108,7 @@ elif command -v yum >/dev/null; then
 fi
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-# 9. 核心参数硬编码（沿用测速绝不报错的固定公私钥组合）
+# 9. 核心参数硬编码（使用测速绝不报错的固定公私钥组合）
 UUID=$(cat /proc/sys/kernel/random/uuid)
 SHORT_ID=$(openssl rand -hex 8)
 PRIVATE_KEY="OHiRUZqq1Yfo5JA6FataI9RzKTE7WPrUoeteBLUpTWc"
@@ -171,7 +171,7 @@ systemctl daemon-reload && systemctl enable xray && systemctl restart xray
 
 sleep 2
 
-# 12. 🌟 核心升级：强行注入全局固化查询命令 【sd】
+# 12. 🌟 核心升级：强行在本地生成全局固化查询命令 【sd】
 cat << 'EOF' > /usr/local/bin/sd
 #!/bin/bash
 CONFIG_FILE="/etc/sd_vless_last.conf"
@@ -204,7 +204,4 @@ else
 fi
 echo "=========================================="
 EOF
-chmod +x /usr/local/bin/sd
-
-# 13. 原地立刻执行一次 sd 命令输出当前成果
-/usr/local/bin/sd
+chmod +x /usr/local/
