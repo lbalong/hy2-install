@@ -10,9 +10,9 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.8 (GitHub 纯净版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.9 (GitHub 纯净版)"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (智能端口跳跃 + 带宽精准对账)"
+echo " 1. 安装 Hysteria 2 (智能端口跳跃 + 官方原生满血调校)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
@@ -199,7 +199,7 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 优化细节一：不忽略客户端带宽，强制限速对账以杜绝自残式丢包
+        # 修复：移除了导致官方原生内核崩溃闪退的非标参数，恢复绝对纯净标准的官方 YAML 账本
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -208,7 +208,6 @@ tls:
 auth:
   type: password
   password: $PASSWORD
-ignoreClientBandwidth: false
 EOF_HY2_YAML
 
         chown -R hysteria:hysteria /etc/hysteria
@@ -216,7 +215,6 @@ EOF_HY2_YAML
         chmod 644 /etc/hysteria/server.crt
         chmod 600 /etc/hysteria/server.key
 
-        # 🌟 优化细节二：按照老哥要求重构的“免 gate 直问跳跃端口”逻辑
         echo "----------------------------------------------------------"
         echo "🚀 Hysteria 2 专属【端口跳跃(Port Hopping)】大外挂"
         read -p "👉 请输入跳跃端口范围 (例 20000:30000，直接回车自动启用随机万门大通道): " PORT_RANGE
@@ -232,13 +230,13 @@ EOF_HY2_YAML
         # 缝合客户端通配的 mport 横杠参数
         PORT_PARAM="&mport=$(echo $PORT_RANGE | tr ':' '-')"
         
-        # 将跳跃波段精准挂载进 Linux 核心 NAT 路由表中
-        iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
+        # 修复：使用彻底降伏内网 NAT 环境的万能 REDIRECT 重定向指令替换 DNAT
+        iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
         if command -v ip6tables >/dev/null 2>&1; then
-            ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
+            ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
         fi
         
-        # 防火墙物理固化保存，应对重启断流风险
+        # 防火墙物理固化保存
         if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
         if command -v service >/dev/null 2>&1; then service iptables save >/dev/null 2>&1; fi
         echo "✅ 端口跳跃底层规则配置成功！"
