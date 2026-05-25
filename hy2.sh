@@ -10,9 +10,9 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.7 (QoS解封优化版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.8 (GitHub 纯净版)"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (含端口跳跃黑科技 + 带宽精准对账)"
+echo " 1. 安装 Hysteria 2 (智能端口跳跃 + 带宽精准对账)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
@@ -25,7 +25,7 @@ PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
 
 if [ -z "$IP" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
-  echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
+  echo "❌ 错误：无法获取服务器公网 IP，请检查 network 连接。"
   exit 1
 fi
 
@@ -199,7 +199,7 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 🌟 引入甬哥调优细节一：强行下发 ignoreClientBandwidth: false，让服务端严格配合客户端限速对账
+        # 优化细节一：不忽略客户端带宽，强制限速对账以杜绝自残式丢包
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -216,32 +216,37 @@ EOF_HY2_YAML
         chmod 644 /etc/hysteria/server.crt
         chmod 600 /etc/hysteria/server.key
 
-        # 🌟 引入甬哥调优细节二：Linux 骨类高并发 UDP 端口跳跃映射（突破 QoS 封锁）
+        # 🌟 优化细节二：按照老哥要求重构的“免 gate 直问跳跃端口”逻辑
         echo "----------------------------------------------------------"
-        read -p "🚀 是否开启 Hysteria 2 专属的【端口跳跃(Port Hopping)】来闪避运营商限速？[y/N]: " HOP_YN
-        if [[ "$HOP_YN" =~ ^[Yy]$ ]]; then
-            read -p "👉 请输入跳跃端口范围 (强烈推荐填 20000:30000): " PORT_RANGE
-            # 转换为通用客户端支持的横杠格式链接
-            PORT_PARAM="&mport=$(echo $PORT_RANGE | tr ':' '-')"
-            
-            # 精准向系统注入多级 DNAT 端口分身规则
-            iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
-            if command -v ip6tables >/dev/null 2>&1; then
-                ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
-            fi
-            
-            # 将规则固化保存，防止 VPS 重启直接断轨
-            if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
-            if command -v service >/dev/null 2>&1; then service iptables save >/dev/null 2>&1; fi
-            echo "✅ 端口跳跃外挂配置成功！"
-        else
-            PORT_PARAM=""
+        echo "🚀 Hysteria 2 专属【端口跳跃(Port Hopping)】大外挂"
+        read -p "👉 请输入跳跃端口范围 (例 20000:30000，直接回车自动启用随机万门大通道): " PORT_RANGE
+        
+        if [ -z "$PORT_RANGE" ]; then
+            # 动态生成跨度为 10000 个端口的专属随机高位频段
+            RAND_START=$(shuf -i 20000-45000 -n 1)
+            RAND_END=$((RAND_START + 10000))
+            PORT_RANGE="${RAND_START}:${RAND_END}"
+            echo "🎲 检测到直接回车，经算法对账，已为你自动指派高位大频段: $PORT_RANGE"
         fi
+        
+        # 缝合客户端通配的 mport 横杠参数
+        PORT_PARAM="&mport=$(echo $PORT_RANGE | tr ':' '-')"
+        
+        # 将跳跃波段精准挂载进 Linux 核心 NAT 路由表中
+        iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
+        if command -v ip6tables >/dev/null 2>&1; then
+            ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
+        fi
+        
+        # 防火墙物理固化保存，应对重启断流风险
+        if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
+        if command -v service >/dev/null 2>&1; then service iptables save >/dev/null 2>&1; fi
+        echo "✅ 端口跳跃底层规则配置成功！"
+        echo "----------------------------------------------------------"
 
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
         GEO_TAG=$(get_geo_tag)
-        # 🌟 缝合最终的端口跳跃链接参数
         HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN${PORT_PARAM}#Hy2_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
