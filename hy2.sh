@@ -52,10 +52,17 @@ net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "正在物理清洗内部防火墙残留（全开接单状态）..."
+    echo "正在物理清洗内部防火墙与 NAT 残留规则..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
+    
+    # 🌟 核心修复：不仅洗 filter 表，连带把 nat 表的老脏规则一网打尽
     iptables -F && iptables -X
+    iptables -t nat -F && iptables -t nat -X
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -F && ip6tables -X
+        ip6tables -t nat -F && ip6tables -t nat -X
+    fi
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
     if command -v apt-get >/dev/null; then
@@ -124,213 +131,5 @@ get_port() {
     
     if [ -f "$cache_file" ]; then
         cached_port=$(cat "$cache_file")
-    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/config.yaml" ]; then
-        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/config.yaml | grep -oE '[0-9]+' | head -n 1)
-    elif [ "$proto" = "tuic" ] && [ -f "/etc/tuic/config.json" ]; then
-        cached_port=$(grep -oE '"server":\s*"[^"]+"' /etc/tuic/config.json | grep -oE '[0-9]+' | head -n 1)
-    fi
-    
-    local default_p=$(shuf -i 10000-60000 -n 1)
-    
-    if [ -n "$cached_port" ]; then
-        read -p "📋 检测到历史缓存 ${proto} 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
-        if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
-            echo "$cached_port" > "$cache_file"
-            echo "$cached_port"
-            return 0
-        fi
-    fi
-    
-    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
-    local final_port="${INPUT_PORT:-$default_p}"
-    echo "$final_port" > "$cache_file"
-    echo "$final_port"
-}
-
-# 智能防御型证书管理，绝不卡死
-sync_cert() {
-    local target_dir=$1
-    get_domain
-    
-    if [ -f "/etc/tuic/server.crt" ] && [ "$target_dir" != "/etc/tuic" ]; then
-        echo "📥 检测到隔壁 TUIC 已持有正规证书，正在执行无缝复制复用..."
-        cp /etc/tuic/server.crt "$target_dir/server.crt"
-        cp /etc/tuic/server.key "$target_dir/server.key"
-        return 0
-    elif [ -f "/etc/hysteria/server.crt" ] && [ "$target_dir" != "/etc/hysteria" ]; then
-        echo "📥 检测到隔壁 Hysteria 2 已持有正规证书，正在执行无缝复制复用..."
-        cp /etc/hysteria/server.crt "$target_dir/server.crt"
-        cp /etc/hysteria/server.key "$target_dir/server.key"
-        return 0
-    fi
-
-    echo "🔄 正在向 Let's Encrypt 申请正式合规证书..."
-    systemctl stop nginx apache2 2>/dev/null
-    curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-    
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-    local issue_res=$?
-    
-    if [ $issue_res -ne 0 ]; then
-        if [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
-            echo "📋 侦测到本地签发历史中已存有合法合规证书文件，判定为缓存复用通车！"
-            issue_res=0
-        fi
-    fi
-    
-    if [ $issue_res -eq 0 ]; then
-        local cert_dir="${DOMAIN}_ecc"
-        [ ! -d "/root/.acme.sh/$cert_dir" ] && cert_dir="$DOMAIN"
-        
-        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
-        echo "✅ 正规域名证书下发/复用成功！"
-    else
-        echo "❌ 证书签发彻底失败，请检查 80 端口是否被物理占用！"
-        exit 1
-    fi
-}
-
-case $CHOICE in
-    1)
-        PORT=$(get_port "hy2")
-        init_env
-        mkdir -p /etc/hysteria
-        bash <(curl -fsSL https://get.hy2.sh)
-        sync_cert "/etc/hysteria"
-        
-        # 修复：移除了导致官方原生内核崩溃闪退的非标参数，恢复绝对纯净标准的官方 YAML 账本
-        cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
-listen: :$PORT
-tls:
-  cert: /etc/hysteria/server.crt
-  key: /etc/hysteria/server.key
-auth:
-  type: password
-  password: $PASSWORD
-EOF_HY2_YAML
-
-        chown -R hysteria:hysteria /etc/hysteria
-        chmod 755 /etc/hysteria
-        chmod 644 /etc/hysteria/server.crt
-        chmod 600 /etc/hysteria/server.key
-
-        echo "----------------------------------------------------------"
-        echo "🚀 Hysteria 2 专属【端口跳跃(Port Hopping)】大外挂"
-        read -p "👉 请输入跳跃端口范围 (例 20000:30000，直接回车自动启用随机万门大通道): " PORT_RANGE
-        
-        if [ -z "$PORT_RANGE" ]; then
-            # 动态生成跨度为 10000 个端口的专属随机高位频段
-            RAND_START=$(shuf -i 20000-45000 -n 1)
-            RAND_END=$((RAND_START + 10000))
-            PORT_RANGE="${RAND_START}:${RAND_END}"
-            echo "🎲 检测到直接回车，经算法对账，已为你自动指派高位大频段: $PORT_RANGE"
-        fi
-        
-        # 缝合客户端通配的 mport 横杠参数
-        PORT_PARAM="&mport=$(echo $PORT_RANGE | tr ':' '-')"
-        
-        # 修复：使用彻底降伏内网 NAT 环境的万能 REDIRECT 重定向指令替换 DNAT
-        iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
-        if command -v ip6tables >/dev/null 2>&1; then
-            ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
-        fi
-        
-        # 防火墙物理固化保存
-        if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
-        if command -v service >/dev/null 2>&1; then service iptables save >/dev/null 2>&1; fi
-        echo "✅ 端口跳跃底层规则配置成功！"
-        echo "----------------------------------------------------------"
-
-        systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
-        
-        GEO_TAG=$(get_geo_tag)
-        HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN${PORT_PARAM}#Hy2_${GEO_TAG}"
-        touch /etc/hy2_tuic/saved_links.txt
-        sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
-        deploy_shortcut
-
-        clear
-        /usr/local/bin/sd
-        ;;
-
-    2)
-        PORT=$(get_port "tuic")
-        init_env
-        mkdir -p /etc/tuic
-        sync_cert "/etc/tuic"
-        
-        echo "🚀 正在下载 TUIC v5 服务端核心..."
-        TUIC_ARCH="x86_64-unknown-linux-gnu"
-        [ "$(uname -m)" = "aarch64" ] && TUIC_ARCH="aarch64-unknown-linux-gnu"
-        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
-        chmod +x /usr/local/bin/tuic-server
-
-        cat << EOF_TUIC_JSON > /etc/tuic/config.json
-{
-  "server": "0.0.0.0:$PORT",
-  "users": {
-    "$UUID": "$PASSWORD"
-  },
-  "certificate": "/etc/tuic/server.crt",
-  "private_key": "/etc/tuic/server.key",
-  "congestion_control": "bbr",
-  "alpn": ["h3"]
-}
-EOF_TUIC_JSON
-
-        cat << EOF_TUIC_SERVICE > /etc/systemd/system/tuic.service
-[Unit]
-Description=TUIC V5 Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/etc/tuic
-ExecStart=/usr/local/bin/tuic-server -c /etc/tuic/config.json
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF_TUIC_SERVICE
-
-        systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
-        
-        GEO_TAG=$(get_geo_tag)
-        TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
-        touch /etc/hy2_tuic/saved_links.txt
-        sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$TUIC_LINK" >> /etc/hy2_tuic/saved_links.txt
-        deploy_shortcut
-
-        clear
-        /usr/local/bin/sd
-        ;;
-
-    3)
-        if [ -f "/usr/local/bin/sd" ]; then
-            /usr/local/bin/sd
-        else
-            echo "❌ 未找到已保存的节点信息！"
-        fi
-        ;;
-
-    4)
-        echo "🧹 正在强行剥离所有后台进程与残留环境..."
-        systemctl stop hysteria-server tuic 2>/dev/null
-        systemctl disable hysteria-server tuic 2>/dev/null
-        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
-        iptables -t nat -F PREROUTING >/dev/null 2>&1
-        if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
-        systemctl daemon-reload
-        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
-        rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
-        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
-        ;;
-    *)
-        exit 1
-        ;;
-esac
+    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/server.yaml" ]; then
+        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/server.yaml | grep -oE '[0-9]+' | head -
