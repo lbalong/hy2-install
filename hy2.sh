@@ -220,3 +220,110 @@ case $CHOICE in
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT_CONFIG
 tls:
+  cert: /etc/hysteria/server.crt
+  key: /etc/hysteria/server.key
+auth:
+  type: password
+  password: $PASSWORD
+EOF_HY2_YAML
+
+        # 物理双写，确保系统服务能稳稳读取
+        cp /etc/hysteria/config.yaml /etc/hysteria/server.yaml
+
+        chown -R hysteria:hysteria /etc/hysteria
+        chmod 755 /etc/hysteria
+        chmod 644 /etc/hysteria/server.crt /etc/hysteria/server.yaml /etc/hysteria/config.yaml
+        chmod 600 /etc/hysteria/server.key
+
+        systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
+        
+        GEO_TAG=$(get_geo_tag)
+        # 生成完全符合客户端最新标准的规范链接
+        HY2_LINK="hysteria2://$PASSWORD@$DOMAIN:$DISPLAY_PORT?sni=$DOMAIN${PORT_PARAM}#Hy2_${GEO_TAG}"
+        touch /etc/hy2_tuic/saved_links.txt
+        sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
+        echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
+        deploy_shortcut
+
+        clear
+        /usr/local/bin/sd
+        ;;
+
+    2)
+        PORT=$(get_port "tuic")
+        init_env
+        mkdir -p /etc/tuic
+        sync_cert "/etc/tuic"
+        
+        echo "🚀 正在下载 TUIC v5 服务端核心..."
+        TUIC_ARCH="x86_64-unknown-linux-gnu"
+        [ "$(uname -m)" = "aarch64" ] && TUIC_ARCH="aarch64-unknown-linux-gnu"
+        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
+        chmod +x /usr/local/bin/tuic-server
+
+        cat << EOF_TUIC_JSON > /etc/tuic/config.json
+{
+  "server": "0.0.0.0:$PORT",
+  "users": {
+    "$UUID": "$PASSWORD"
+  },
+  "certificate": "/etc/tuic/server.crt",
+  "private_key": "/etc/tuic/server.key",
+  "congestion_control": "bbr",
+  "alpn": ["h3"]
+}
+EOF_TUIC_JSON
+
+        cat << EOF_TUIC_SERVICE > /etc/systemd/system/tuic.service
+[Unit]
+Description=TUIC V5 Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/tuic
+ExecStart=/usr/local/bin/tuic-server -c /etc/tuic/config.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF_TUIC_SERVICE
+
+        systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
+        
+        GEO_TAG=$(get_geo_tag)
+        TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
+        touch /etc/hy2_tuic/saved_links.txt
+        sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
+        echo "$TUIC_LINK" >> /etc/hy2_tuic/saved_links.txt
+        deploy_shortcut
+
+        clear
+        /usr/local/bin/sd
+        ;;
+
+    3)
+        if [ -f "/usr/local/bin/sd" ]; then
+            /usr/local/bin/sd
+        else
+            echo "❌ 未找到已保存的节点信息！"
+        fi
+        ;;
+
+    4)
+        echo "🧹 正在强行剥离所有后台进程与残留环境..."
+        systemctl stop hysteria-server tuic 2>/dev/null
+        systemctl disable hysteria-server tuic 2>/dev/null
+        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
+        iptables -t nat -F PREROUTING >/dev/null 2>&1
+        systemctl daemon-reload
+        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
+        rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
+        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
