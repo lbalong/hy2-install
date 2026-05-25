@@ -10,9 +10,9 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 官方原生内核完全体 V9.1 (智能跳跃版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V9.2 (完美对齐调优版)"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (智能端口跳跃 + 官方原生满血调校)"
+echo " 1. 安装 Hysteria 2 (智能端口跳跃 + 完美对齐甬哥规则)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
@@ -43,7 +43,7 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境与系统防火墙一键物理洗地
+# 🌟 核心修复一：100% 抄对甬哥的防火墙洗地作业，绝不误伤系统的 nat 表
 init_env() {
     echo "正在优化内核 UDP 缓冲区..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
@@ -52,17 +52,17 @@ net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "正在物理清洗内部防火墙与 NAT 残留规则..."
+    echo "正在放行系统安全策略..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
     
-    iptables -F && iptables -X
-    iptables -t nat -F && iptables -t nat -X
-    if command -v ip6tables >/dev/null 2>&1; then
-        ip6tables -F && ip6tables -X
-        ip6tables -t nat -F && ip6tables -t nat -X
-    fi
-    iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
+    # 严格对齐甬哥 close() 函数：只洗 filter 和 mangle，严禁下发 -t nat -F！
+    iptables -P INPUT ACCEPT >/dev/null 2>&1
+    iptables -P FORWARD ACCEPT >/dev/null 2>&1
+    iptables -P OUTPUT ACCEPT >/dev/null 2>&1
+    iptables -t mangle -F >/dev/null 2>&1
+    iptables -F >/dev/null 2>&1
+    iptables -X >/dev/null 2>&1
 
     if command -v apt-get >/dev/null; then
       apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools iptables-persistent
@@ -207,7 +207,7 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 写入纯净的官方原生 YAML 账本
+        # 写入正规军原生态的官方 YAML 账本
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -218,7 +218,7 @@ auth:
   password: $PASSWORD
 EOF_HY2_YAML
 
-        # 物理双写，封死官方原生的路径读取雷区
+        # 物理双写配置，确保原生核心雷达死死锁住路径
         cp /etc/hysteria/config.yaml /etc/hysteria/server.yaml
 
         chown -R hysteria:hysteria /etc/hysteria
@@ -226,10 +226,9 @@ EOF_HY2_YAML
         chmod 644 /etc/hysteria/server.crt /etc/hysteria/server.yaml /etc/hysteria/config.yaml
         chmod 600 /etc/hysteria/server.key
 
-        # 🌟 核心调优：按照老哥指示，直接询问端口范围，回车直接丢给系统自动盲操指派
         echo "----------------------------------------------------------"
         echo "🚀 Hysteria 2 专属【端口跳跃(Port Hopping)】解封外挂"
-        read -p "👉 请输入跳跃端口范围 (如 20000:30000，直接回车自动启用随机万门大通道): " PORT_RANGE
+        read -p "👉 请输入跳跃端口范围 (形如 20000:30000，直接回车自动启用随机万门大通道): " PORT_RANGE
         
         if [ -z "$PORT_RANGE" ]; then
             RAND_START=$(shuf -i 20000-45000 -n 1)
@@ -241,23 +240,22 @@ EOF_HY2_YAML
         # 缝合标准客户端通配的 mport 横杠参数
         PORT_PARAM="&mport=$(echo $PORT_RANGE | tr ':' '-')"
         
-        # 注入万能 REDIRECT 重定向指令路由至主端口
-        iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
+        # 🌟 核心修复二：100% 还原复制甬哥的底层端口重定向转发方案（带有冒号的 DNAT 规则）
+        iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
         if command -v ip6tables >/dev/null 2>&1; then
-            ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
+            ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j DNAT --to-destination :$PORT
         fi
         
         # 防火墙持久化保存
         if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
         if command -v service >/dev/null 2>&1; then service iptables save >/dev/null 2>&1; fi
         echo "✅ 端口跳跃本地规则配置成功！"
-        echo "⚠️  注意：如果使用的是甲骨文/AWS，请务必去云后台放行该 UDP 端口范围！"
         echo "----------------------------------------------------------"
 
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
         GEO_TAG=$(get_geo_tag)
-        # 对齐正规军协议头 hysteria2://
+        # 生成规范的一键链接
         HY2_LINK="hysteria2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN${PORT_PARAM}#Hy2_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
