@@ -10,9 +10,9 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 官方原生内核完全体 V9.0 (内置跳跃版)"
+echo "    Hysteria 2 & TUIC v5 官方原生内核完全体 V9.1 (智能跳跃版)"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (官方原生内置端口跳跃方案 - 彻底告别 iptables)"
+echo " 1. 安装 Hysteria 2 (智能端口跳跃 + 官方原生满血调校)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
@@ -43,7 +43,7 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境一键物理洗地
+# 核心环境与系统防火墙一键物理洗地
 init_env() {
     echo "正在优化内核 UDP 缓冲区..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
@@ -52,16 +52,24 @@ net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "正在开放系统基础网络组件..."
+    echo "正在物理清洗内部防火墙与 NAT 残留规则..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
+    
     iptables -F && iptables -X
+    iptables -t nat -F && iptables -t nat -X
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -F && ip6tables -X
+        ip6tables -t nat -F && ip6tables -t nat -X
+    fi
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
     if command -v apt-get >/dev/null; then
-      apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools
+      apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools iptables-persistent
     elif command -v yum >/dev/null; then
-      yum makecache && yum install -y curl openssl wget iptables socat crontabs net-tools
+      yum makecache && yum install -y curl openssl wget iptables socat crontabs net-tools iptables-services
+      systemctl enable iptables >/dev/null 2>&1
+      systemctl start iptables >/dev/null 2>&1
     fi
 }
 
@@ -114,7 +122,7 @@ get_domain() {
     done
 }
 
-# 智能提取与分配原生端口配置
+# 全盘扫描本地官方配置，100% 榨出历史端口
 get_port() {
     local proto=$1
     local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
@@ -122,34 +130,32 @@ get_port() {
     
     if [ -f "$cache_file" ]; then
         cached_port=$(cat "$cache_file")
+    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/server.yaml" ]; then
+        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/server.yaml | grep -oE '[0-9]+' | head -n 1)
+    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/config.yaml" ]; then
+        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/config.yaml | grep -oE '[0-9]+' | head -n 1)
+    elif [ "$proto" = "tuic" ] && [ -f "/etc/tuic/config.json" ]; then
+        cached_port=$(grep -oE '"server":\s*"[^"]+"' /etc/tuic/config.json | grep -oE '[0-9]+' | head -n 1)
     fi
     
+    local default_p=$(shuf -i 10000-60000 -n 1)
+    
     if [ -n "$cached_port" ]; then
-        read -p "📋 检测到历史缓存 ${proto} 端口配置 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
+        read -p "📋 检测到历史缓存 ${proto} 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
         if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
+            echo "$cached_port" > "$cache_file"
             echo "$cached_port"
             return 0
         fi
     fi
     
-    if [ "$proto" = "hy2" ]; then
-        local rand_start=$(shuf -i 20000-35000 -n 1)
-        local rand_end=$((rand_start + 10000))
-        echo "----------------------------------------------------------"
-        echo "💡 提示：单端口请输入数字(如 443)，开启跳跃请输入范围(如 20000-30000)"
-        read -p "👉 请输入监听配置 (直接回车默认开启原生跳跃大通道 ${rand_start}-${rand_end}): " INPUT_PORT
-        local final_port="${INPUT_PORT:-${rand_start}-${rand_end}}"
-    else
-        local default_p=$(shuf -i 10000-60000 -n 1)
-        read -p "👉 请输入 TUIC 监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
-        local final_port="${INPUT_PORT:-$default_p}"
-    fi
-    
+    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
+    local final_port="${INPUT_PORT:-$default_p}"
     echo "$final_port" > "$cache_file"
     echo "$final_port"
 }
 
-# 智能证书管理
+# 智能防御型证书管理
 sync_cert() {
     local target_dir=$1
     get_domain
@@ -195,30 +201,15 @@ sync_cert() {
 
 case $CHOICE in
     1)
-        PORT_CONFIG=$(get_port "hy2")
+        PORT=$(get_port "hy2")
         init_env
         mkdir -p /etc/hysteria
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 🌟 核心分流对账：判断是单端口还是内置原生范围监听
-        if [[ "$PORT_CONFIG" == *'-'* ]]; then
-            # 原生跳跃模式：把主端口定为范围的第一个数字
-            MAIN_PORT=$(echo "$PORT_CONFIG" | cut -d'-' -f1)
-            END_PORT=$(echo "$PORT_CONFIG" | cut -d'-' -f2)
-            HOP_START=$((MAIN_PORT + 1))
-            # 客户端链接里所需的跳跃参数（mport 格式）
-            PORT_PARAM="&mport=${HOP_START}-${END_PORT}"
-            DISPLAY_PORT=$MAIN_PORT
-        else
-            # 普通单端口模式
-            PORT_PARAM=""
-            DISPLAY_PORT=$PORT_CONFIG
-        fi
-
-        # 🌟 满血核心改动：直接把端口配置写入 listen 字段，交给官方原生核心内部接管，不留一丝安全隐患
+        # 写入纯净的官方原生 YAML 账本
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
-listen: :$PORT_CONFIG
+listen: :$PORT
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
@@ -227,7 +218,7 @@ auth:
   password: $PASSWORD
 EOF_HY2_YAML
 
-        # 物理双写，确保系统服务能稳稳读取
+        # 物理双写，封死官方原生的路径读取雷区
         cp /etc/hysteria/config.yaml /etc/hysteria/server.yaml
 
         chown -R hysteria:hysteria /etc/hysteria
@@ -235,11 +226,39 @@ EOF_HY2_YAML
         chmod 644 /etc/hysteria/server.crt /etc/hysteria/server.yaml /etc/hysteria/config.yaml
         chmod 600 /etc/hysteria/server.key
 
+        # 🌟 核心调优：按照老哥指示，直接询问端口范围，回车直接丢给系统自动盲操指派
+        echo "----------------------------------------------------------"
+        echo "🚀 Hysteria 2 专属【端口跳跃(Port Hopping)】解封外挂"
+        read -p "👉 请输入跳跃端口范围 (如 20000:30000，直接回车自动启用随机万门大通道): " PORT_RANGE
+        
+        if [ -z "$PORT_RANGE" ]; then
+            RAND_START=$(shuf -i 20000-45000 -n 1)
+            RAND_END=$((RAND_START + 10000))
+            PORT_RANGE="${RAND_START}:${RAND_END}"
+            echo "🎲 检测到直接回车，已自动分配大频段: $PORT_RANGE"
+        fi
+        
+        # 缝合标准客户端通配的 mport 横杠参数
+        PORT_PARAM="&mport=$(echo $PORT_RANGE | tr ':' '-')"
+        
+        # 注入万能 REDIRECT 重定向指令路由至主端口
+        iptables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
+        if command -v ip6tables >/dev/null 2>&1; then
+            ip6tables -t nat -A PREROUTING -p udp --dport $PORT_RANGE -j REDIRECT --to-ports $PORT
+        fi
+        
+        # 防火墙持久化保存
+        if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
+        if command -v service >/dev/null 2>&1; then service iptables save >/dev/null 2>&1; fi
+        echo "✅ 端口跳跃本地规则配置成功！"
+        echo "⚠️  注意：如果使用的是甲骨文/AWS，请务必去云后台放行该 UDP 端口范围！"
+        echo "----------------------------------------------------------"
+
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
         GEO_TAG=$(get_geo_tag)
-        # 生成完全符合客户端最新标准的规范链接
-        HY2_LINK="hysteria2://$PASSWORD@$DOMAIN:$DISPLAY_PORT?sni=$DOMAIN${PORT_PARAM}#Hy2_${GEO_TAG}"
+        # 对齐正规军协议头 hysteria2://
+        HY2_LINK="hysteria2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN${PORT_PARAM}#Hy2_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
@@ -318,6 +337,7 @@ EOF_TUIC_SERVICE
         systemctl disable hysteria-server tuic 2>/dev/null
         rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
         iptables -t nat -F PREROUTING >/dev/null 2>&1
+        if command -v netfilter-persistent >/dev/null 2>&1; then netfilter-persistent save >/dev/null 2>&1; fi
         systemctl daemon-reload
         rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
         rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
