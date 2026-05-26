@@ -11,16 +11,17 @@ mkdir -p /etc/sing-box
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Sing-Box 官方原生规范：VLESS-Reality 满血版 (联动 sd)"
+echo "    Sing-Box 官方原生规范：AnyTLS + Reality 终极完全体"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-Reality 节点 (16MB内核超频 + TFO免握手版)"
+echo " 1. 安装/更新 AnyTLS+Reality 节点 (16MB内核超频 + TFO免握手)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
-echo " 3. 彻底卸载 VLESS-Reality 服务"
+echo " 3. 彻底卸载 AnyTLS+Reality 服务"
 echo "=========================================================="
 read -p "请选择操作 [1-3]: " CHOICE
 
 # 提取公共核心变量
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
+PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 if [ -z "$IP" ] && [ "$CHOICE" -eq 1 ]; then
   echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
@@ -41,10 +42,10 @@ get_geo_tag() {
     fi
 }
 
-# 🌟 优化一：100% 榨干 TCP 流速的 16MB 巨型网络管道
+# 核心环境清洗与 TCP/BBR 深度性能榨干 (16MB 满血超频版)
 init_env() {
     echo "🚀 正在向内核物理注入 BBR + 16MB 满血网络超频补丁..."
-    cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-vless-bbr.conf
+    cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-anytls-bbr.conf
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.rmem_max = 16772160
@@ -65,7 +66,7 @@ EOF_SYSCTL
       yum install -y -q curl wget tar openssl net-tools iptables
     fi
 
-    echo "🔓 正在物理清理内部防火墙残留..."
+    echo "🔓 正在物理清理内部防火墙残留（全开接单状态）..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
     iptables -F && iptables -X
@@ -79,7 +80,7 @@ deploy_shortcut() {
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo "📋 当前 VPS 已保存的节点链接汇总 (Hy2 vs TUIC vs Reality)"
+    echo "📋 当前 VPS 已保存的节点链接汇总 (Hy2 vs TUIC vs AnyTLS)"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
@@ -99,14 +100,14 @@ get_port() {
     local default_p=443  # Reality 本命首选 443
     
     if [ -n "$cached_port" ]; then
-        read -p "📋 检测到历史缓存端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
+        read -p "📋 检测到历史缓存 AnyTLS 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
         if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
             echo "$cached_port"
             return 0
         fi
     fi
     
-    read -p "👉 请输入监听端口 (强烈推荐直接回车用本命 443 端口伪装): " INPUT_PORT
+    read -p "👉 请输入 AnyTLS 监听端口 (强烈推荐直接回车用本命 443 端口伪装): " INPUT_PORT
     echo "${INPUT_PORT:-$default_p}"
 }
 
@@ -129,7 +130,7 @@ case $CHOICE in
         chmod +x /usr/local/bin/sing-box
         rm -rf sing-box*
 
-        # 动态生成密钥对
+        # 🌟 核心优化：动态呼叫内核，压榨出 Reality 所需的专属非对称密钥对
         UUID=$(/usr/local/bin/sing-box generate uuid 2>/dev/null || cat /proc/sys/kernel/random/uuid)
         KEY_PAIR=$(/usr/local/bin/sing-box generate reality-keypair)
         PRIVATE_KEY=$(echo "$KEY_PAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d '"')
@@ -137,7 +138,7 @@ case $CHOICE in
         SHORT_ID=$(openssl rand -hex 8)
         DEST_SERVER="www.microsoft.com"
 
-        # 🌟 优化二：入站配置强行挂载 tcp_fast_open 与 tcp_multi_path 极速起步外挂
+        # 🌟 核心：写入 100% 符合官方原生规范的 AnyTLS + Reality 混合版账本
         cat << EOF > /etc/sing-box/config.json
 {
   "log": {
@@ -145,16 +146,16 @@ case $CHOICE in
   },
   "inbounds": [
     {
-      "type": "vless",
-      "tag": "vless-reality-in",
+      "type": "anytls",
+      "tag": "anytls-reality-in",
       "listen": "0.0.0.0",
       "listen_port": $PORT,
       "tcp_fast_open": true,
       "tcp_multi_path": true,
       "users": [
         {
-          "uuid": "$UUID",
-          "flow": "xtls-rprx-vision"
+          "name": "qiutonglin",
+          "password": "$PASSWORD"
         }
       ],
       "tls": {
@@ -189,7 +190,7 @@ EOF
         # 注入标准 Systemd 后台守护
         cat << EOF > /etc/systemd/system/sing-box.service
 [Unit]
-Description=Sing-Box VLESS-Reality Service
+Description=Sing-Box AnyTLS Service
 After=network.target
 
 [Service]
@@ -208,14 +209,13 @@ EOF
         systemctl enable sing-box >/dev/null 2>&1
         systemctl restart sing-box
         
-        # 动态组装完全体链接
+        # 动态组装完全体链接（注入 Reality 高级校验特征）
         GEO_TAG=$(get_geo_tag)
-        REALITY_LINK="vless://$UUID@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&flow=xtls-rprx-vision&type=tcp&headerType=none#Reality_${GEO_TAG}"
+        ANYTLS_LINK="anytls://$PASSWORD@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID#AnyTLS_Reality_${GEO_TAG}"
         
         touch /etc/hy2_tuic/saved_links.txt
-        sed -i '/#Reality_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         sed -i '/#AnyTLS_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$REALITY_LINK" >> /etc/hy2_tuic/saved_links.txt
+        echo "$ANYTLS_LINK" >> /etc/hy2_tuic/saved_links.txt
         
         deploy_shortcut
         clear
@@ -231,15 +231,15 @@ EOF
         ;;
 
     3)
-        echo "🧹 正在彻底剥离 Sing-Box 服务端与残留环境..."
+        echo "🧹 正在彻底剥离 AnyTLS 核心服务与残留环境..."
         systemctl stop sing-box 2>/dev/null
         systemctl disable sing-box 2>/dev/null
         rm -f /etc/systemd/system/sing-box.service
         systemctl daemon-reload
         rm -f /usr/local/bin/sing-box
         rm -rf /etc/sing-box
-        sed -i '/#Reality_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "✅ VLESS-Reality (Sing-Box) 环境已彻底清洗干净！"
+        sed -i '/#AnyTLS_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
+        echo "✅ AnyTLS + Reality (Sing-Box) 环境已彻底清洗干净！"
         ;;
     *)
         exit 1
