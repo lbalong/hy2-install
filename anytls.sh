@@ -3,7 +3,7 @@
 set -e
 
 echo "======================================"
-echo " AnyTLS + sing-box 高性能安装脚本"
+echo " AnyTLS 一键安装脚本"
 echo "======================================"
 
 if [[ $EUID -ne 0 ]]; then
@@ -11,8 +11,7 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-read -p "请输入监听端口(默认443): " PORT
-PORT=${PORT:-443}
+PORT=443
 
 ARCH=$(uname -m)
 
@@ -27,11 +26,12 @@ fi
 
 echo
 echo "安装依赖..."
+
 apt update
 apt install -y curl wget tar jq openssl
 
 echo
-echo "开启BBR..."
+echo "开启 BBR 与网络优化..."
 
 cat > /etc/sysctl.d/99-custom.conf <<EOF
 net.core.default_qdisc=fq
@@ -45,30 +45,9 @@ net.ipv4.tcp_wmem=4096 65536 67108864
 
 net.ipv4.tcp_fastopen=3
 net.ipv4.tcp_mtu_probing=1
-net.ipv4.tcp_window_scaling=1
-
-net.ipv4.tcp_fin_timeout=15
-net.ipv4.tcp_keepalive_time=600
-
-fs.file-max=1048576
 EOF
 
 sysctl --system
-
-echo
-echo "优化 limits..."
-
-cat >> /etc/security/limits.conf <<EOF
-* soft nofile 1048576
-* hard nofile 1048576
-EOF
-
-mkdir -p /etc/systemd/system/sing-box.service.d
-
-cat > /etc/systemd/system/sing-box.service.d/limit.conf <<EOF
-[Service]
-LimitNOFILE=1048576
-EOF
 
 echo
 echo "下载 sing-box..."
@@ -90,7 +69,9 @@ mkdir -p /etc/sing-box
 
 IP=$(curl -s ipv4.ip.sb)
 
-PASSWORD=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-24)
+PASSWORD=$(openssl rand -hex 16)
+
+SNI="www.cloudflare.com"
 
 echo
 echo "生成配置..."
@@ -103,12 +84,10 @@ cat > /etc/sing-box/config.json <<EOF
   "inbounds": [
     {
       "type": "anytls",
-      "tag": "anytls-in",
       "listen": "::",
       "listen_port": ${PORT},
       "users": [
         {
-          "name": "user",
           "password": "${PASSWORD}"
         }
       ],
@@ -130,14 +109,13 @@ echo "创建 systemd 服务..."
 
 cat > /etc/systemd/system/sing-box.service <<EOF
 [Unit]
-Description=sing-box service
+Description=sing-box
 After=network.target
 
 [Service]
 ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
-Restart=on-failure
-RestartSec=10
-LimitNOFILE=1048576
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -147,14 +125,11 @@ systemctl daemon-reload
 systemctl enable sing-box
 systemctl restart sing-box
 
-echo
-echo "开放防火墙..."
-
 if command -v ufw >/dev/null 2>&1; then
     ufw allow ${PORT}/tcp
 fi
 
-NODE_LINK="anytls://${PASSWORD}@${IP}:${PORT}?security=tls&sni=www.microsoft.com#AnyTLS"
+NODE_LINK="anytls://${PASSWORD}@${IP}:${PORT}?security=tls&sni=${SNI}#AnyTLS"
 
 echo
 echo "======================================"
@@ -162,15 +137,9 @@ echo " 安装完成"
 echo "======================================"
 
 echo
-echo "服务器IP: ${IP}"
-echo "端口: ${PORT}"
-echo "随机密码: ${PASSWORD}"
-
-echo
-echo "AnyTLS 节点链接："
+echo "节点链接："
 echo
 echo "${NODE_LINK}"
 
 echo
-echo "BBR状态："
-sysctl net.ipv4.tcp_congestion_control
+echo "复制上面的链接导入客户端即可"
