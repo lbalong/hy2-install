@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Sing-Box 调优思路：VLESS + WS + Cloudflare 安全满血版"
+echo "    Sing-Box 调优思路：VLESS + WS + Cloudflare 纯净一键版"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS 盾牌节点 (16MB 内核超频 + 智能记忆版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -62,7 +62,7 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd
+# 部署专属快捷查询命令 sd (由脚本全自动组装两条完全体链接，彻底消灭手动优化)
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
@@ -71,19 +71,19 @@ if [ -f "$CF_CONF" ]; then
     source "$CF_CONF"
     clear
     echo "=========================================================="
-    echo "📋 您当前激活的 VLESS + Cloudflare 节点链接"
+    echo "📋 当前已套【小云朵】的 VLESS-WS 完全体导入链接"
     echo "=========================================================="
-    echo "👇 您的通用一键导入链接（已套小云朵安全防护版）："
-    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:443?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH#CF_Shield_$LAST_PORT"
+    echo "🔗 链接一：常规域名导入单"
+    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:443?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH#CF_普通版_$LAST_PORT"
+    echo ""
+    echo "🔥 链接二：大厂专线全自动优选速飙单 (🔥 电信千兆墙裂推荐)"
+    echo "vless://$LAST_UUID@www.visa.com.sg:443?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH&host=$LAST_CF_DOMAIN#CF_满血优选_$LAST_PORT"
     echo "=========================================================="
-    echo "💡 极速超频通车指南："
-    echo "1. 必须登录 Cloudflare 后台，把【小云朵】点亮（开启 Proxy）。"
-    echo "2. 在 Cloudflare 的【SSL/TLS】菜单里，将加密模式改为【Flexible (灵活)】！"
-    echo "3. 针对你的 1000M 电信宽带，建议在手机/电脑客户端的【伪装地址/Address】"
-    echo "   栏里，填入优选的 CF 节点 IP（如 www.visa.com.sg 或 优选IP），速度能瞬间飙满！"
+    echo "💡 极速通车核对单："
+    echo " 1. 请确保你在 Cloudflare 后台的【DNS 记录】里已经把【小云朵】点亮（开启代理）。"
+    echo " 2. 请确保在 CF 的【SSL/TLS】菜单里，将加密模式改为了【Flexible (灵活)】！"
+    echo " 3. 老哥直接复制上面的【链接二】导入客户端，即可直接通车，免去任何手动调校。"
     echo "=========================================================="
-else
-    echo "❌ 未找到历史节点信息，请先选择 1 进行安装！"
 fi
 EOF_SHOW
     chmod +x /usr/local/bin/sd
@@ -93,7 +93,7 @@ case $CHOICE in
     1)
         init_env
         
-        # 智能收集配置（带历史记忆）
+        # 智能收集域名（带历史记忆）
         if [ -n "$LAST_CF_DOMAIN" ]; then
             read -p "👉 请输入你在 CF 托付的域名 (回车自动复用: $LAST_CF_DOMAIN): " CF_DOMAIN
             CF_DOMAIN=${CF_DOMAIN:-$LAST_CF_DOMAIN}
@@ -104,8 +104,19 @@ case $CHOICE in
             done
         fi
 
-        # 端口锁定（必须在 Cloudflare 官方支持的标准 HTTP 端口集里挑：80, 8080, 8880, 2052, 2082, 2086, 2095）
-        PORT=8080
+        # 🌟 核心修复一：增加端口询问闸口，且明确提醒支持的 HTTP 端口范围
+        echo "----------------------------------------------------------"
+        echo "💡 提示：套小云朵必须使用 CF 官方指定的 HTTP 标准端口："
+        echo "   [ 80, 8080, 8880, 2052, 2082, 2086, 2095 ]"
+        if [ -n "$LAST_PORT" ]; then
+            read -p "👉 请输入 VPS 监听端口 (直接回车复用上次的: $LAST_PORT): " INPUT_PORT
+            PORT="${INPUT_PORT:-$LAST_PORT}"
+        else
+            read -p "👉 请输入 VPS 监听端口 (直接回车默认使用高位合规 8080): " INPUT_PORT
+            PORT="${INPUT_PORT:-8080}"
+        fi
+        echo "=========================================================="
+
         WS_PATH="/vless-cf-ws"
         
         # 保存本地账本
@@ -117,7 +128,7 @@ case $CHOICE in
         echo "🚀 正在拉取正规军 Xray 官方二进制核心..."
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-        # 写入 100% 对齐官方规范的 VLESS-WS 纯净入站配置
+        # 🌟 核心修复二：将入站端口死死对齐老哥输入的 $PORT 变量
         cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
