@@ -116,4 +116,117 @@ case $CHOICE in
             echo " 提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中选择："
             echo "    [ 443, 2053, 2083, 2087, 2096, 8443 ]"
             echo "----------------------------------------------------------"
-            if
+            if [ -n "$LAST_PORT" ]; then
+                read -p " 请输入端口号 (直接回车复用历史端口 [$LAST_PORT]): " INPUT_PORT
+                PORT="${INPUT_PORT:-$LAST_PORT}"
+            else
+                read -p " 请纯手动输入一个上述列表中的端口号: " PORT
+            fi
+            
+            case "$PORT" in
+                443|2053|2083|2087|2096|8443)
+                    if [ -n "$PORT" ]; then break 2; fi
+                    ;;
+                *)
+                    echo " 错误：输入的端口不在允许列表中，请重新输入！"
+                    ;;
+            esac
+        done
+
+        WS_PATH="/vless-cf-tls-ws"
+        
+        # 顶格 heredoc 写入本地持久化账本
+        cat << EOF > "$CONFIG_FILE"
+LAST_CF_DOMAIN="$CF_DOMAIN"
+LAST_UUID="$UUID"
+LAST_PORT="$PORT"
+LAST_WS_PATH="$WS_PATH"
+EOF
+
+        echo " 正在拉取正规军 Xray 官方二进制核心..."
+        bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
+
+        # 🌟 核心修复一：强力清空原有模板，防止 Xray 启动时多账本混合导致闪退
+        rm -f /usr/local/etc/xray/*.json
+
+        # 🌟 核心修复二：直接在 Xray 属地内生成自签证书，彻底打破跨目录读取阻断
+        echo " 正在本地秒发 10 年期合规自签名 TLS 证书并移籍..."
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+          -keyout "/usr/local/etc/xray/server.key" \
+          -out "/usr/local/etc/xray/server.crt" \
+          -subj "/CN=$CF_DOMAIN" >/dev/null 2>&1
+
+        # Xray 核心入站配置
+        cat << EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": $PORT,
+      "listen": "0.0.0.0",
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$UUID",
+            "level": 0
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/usr/local/etc/xray/server.crt",
+              "keyFile": "/usr/local/etc/xray/server.key"
+            }
+          ]
+        },
+        "wsSettings": {
+          "path": "$WS_PATH"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
+}
+EOF
+
+        # 🌟 核心修复三：对配置文件和证书链进行全盘物理所有权变更，确保非 root 进程能 100% 畅通对账
+        chmod 644 /usr/local/etc/xray/config.json /usr/local/etc/xray/server.crt
+        chmod 600 /usr/local/etc/xray/server.key
+        chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null || chown -R xray:xray /usr/local/etc/xray 2>/dev/null
+        
+        systemctl daemon-reload
+        systemctl enable xray >/dev/null 2>&1
+        systemctl restart xray
+
+        deploy_shortcut
+        clear
+        /usr/local/bin/sd
+        ;;
+
+    2)
+        if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo " 未找到节点配置！"; fi
+        ;;
+
+    3)
+        echo " 正在彻底物理剥离服务与清洗环境..."
+        systemctl stop xray 2>/dev/null
+        systemctl disable xray 2>/dev/null
+        rm -rf /usr/local/bin/xray /usr/local/etc/xray /etc/cf_vless /usr/local/bin/sd
+        echo " 卸载清洗完成！"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
