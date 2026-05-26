@@ -11,15 +11,15 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.8"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.9"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 端口完全自定版)"
+echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 历史智能记忆版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 3. 彻底卸载节点服务"
 echo "=========================================================="
 read -p "请选择操作 [1-3]: " CHOICE
 
-# 提取公共核心变量
+# 提取并激活历史缓存账本
 CONFIG_FILE="/etc/cf_vless/last_cfg.conf"
 if [ -f "$CONFIG_FILE" ]; then source "$CONFIG_FILE"; fi
 
@@ -27,7 +27,7 @@ IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "6a82e704-9ac8-4fb8-bef1-6c9d7d7e390a")
 
 if [ -z "$IP" ] && [ "$CHOICE" -eq 1 ]; then
-  echo "错误：无法获取服务器公网 IP，请检查 network 连接。"
+  echo "错误：无法获取服务器公网 IP，请检查网络连接。"
   exit 1
 fi
 
@@ -76,7 +76,7 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (核心修复：备注彻底换成纯英文，解决链接无法导入的死穴)
+# 部署专属快捷查询命令 sd (核心修复：斜杠转义为 %2F 确保 100% 导入，去除公网阻断域名)
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
@@ -87,16 +87,16 @@ if [ -f "$CF_CONF" ]; then
     echo "=========================================================="
     echo " 当前已套【小云朵】的 VLESS-WS-TLS 满血节点导入链接"
     echo "=========================================================="
-    echo "🔗 链接一：常规自主端口导入单"
-    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH#CF-Domain-$LAST_PORT"
+    echo "🔗 链接一：常规自主域名导入单 (100% 稳固基本盘)"
+    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws#CF-Domain-$LAST_PORT"
     echo ""
-    echo " 链接二：全球公开前端官网全自动速飙单 (智能一键导入推荐)"
-    echo "vless://$LAST_UUID@www.cloudflare.com:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT"
+    echo "🔥 链接二：全球公开 Anycast 专线全自动速飙单 (千兆全自动优选推荐)"
+    echo "vless://$LAST_UUID@104.16.123.96:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT"
     echo "=========================================================="
     echo " 极速通车对账单："
     echo " 1. 请确保你在 Cloudflare 后台的【DNS 记录】里已经把【小云朵】点亮（开启代理）。"
     echo " 2. 请确保在 CF 后台的【SSL/TLS】菜单里，将加密模式改为了【Full (完全)】！"
-    echo " 3. 老哥直接复制上面的【链接二】导入客户端，已经全自动封装完毕，免去任何手动微调。"
+    echo " 3. 本次已彻底修复客户端解析格式，复制上方任意一条链接即可 100% 秒导入。"
     echo "=========================================================="
 fi
 EOF_SHOW
@@ -107,19 +107,30 @@ case $CHOICE in
     1)
         init_env
         
-        # 智能收集域名
-        while true; do
-            read -p " 请输入你在 Cloudflare 解析好的完整域名 (例如 us9.099889.xyz): " CF_DOMAIN
-            if [ -n "$CF_DOMAIN" ]; then break; fi
-        done
+        # 🌟 核心优化一：记忆唤醒！自动检测历史输入的域名，直接回车即复用
+        if [ -n "$LAST_CF_DOMAIN" ]; then
+            read -p " 检测到上次输入的域名 [$LAST_CF_DOMAIN]，直接回车复用，或输入新域名: " CF_DOMAIN
+            CF_DOMAIN=${CF_DOMAIN:-$LAST_CF_DOMAIN}
+        else
+            while true; do
+                read -p " 请输入你在 Cloudflare 解析好的完整域名 (例如 us9.099889.xyz): " CF_DOMAIN
+                if [ -n "$CF_DOMAIN" ]; then break; fi
+            done
+        fi
 
-        # 端口自定卡关校验
+        # 🌟 核心优化二：记忆唤醒！自动检测历史端口，回车即可复用，且卡关校验
         while true; do
             echo "----------------------------------------------------------"
-            echo " 提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中手动输入一个："
+            echo " 提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中选择："
             echo "    [ 443, 2053, 2083, 2087, 2096, 8443 ]"
             echo "----------------------------------------------------------"
-            read -p " 请纯手动输入一个上述列表中的端口号: " PORT
+            if [ -n "$LAST_PORT" ]; then
+                read -p " 请输入端口号 (直接回车复用上次的 [$LAST_PORT]): " INPUT_PORT
+                PORT="${INPUT_PORT:-$LAST_PORT}"
+            else
+                read -p " 请纯手动输入一个上述列表中的端口号: " PORT
+            fi
+            
             case "$PORT" in
                 443|2053|2083|2087|2096|8443)
                     if [ -n "$PORT" ]; then break 2; fi
@@ -132,7 +143,7 @@ case $CHOICE in
 
         WS_PATH="/vless-cf-tls-ws"
         
-        # 顶格 heredoc 写入临时账本
+        # 顶格 heredoc 写入本地持久化账本，供下次读取复用
         cat << EOF > "$CONFIG_FILE"
 LAST_CF_DOMAIN="$CF_DOMAIN"
 LAST_UUID="$UUID"
@@ -140,7 +151,7 @@ LAST_PORT="$PORT"
 LAST_WS_PATH="$WS_PATH"
 EOF
 
-        # 本地秒发 10 年期合规自签名 TLS 证书保底，支持 CF Full 模式
+        # 本地秒发 10 年期合规自签名 TLS 证书
         echo " 正在本地秒发 10 年期合规自签名 TLS 证书保底..."
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
           -keyout "/etc/cf_vless/server.key" \
@@ -150,7 +161,7 @@ EOF
         echo " 正在拉取正规军 Xray 官方二进制核心..."
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-        # 核心写入：Xray 核心入站配置
+        # Xray 核心入站纯净配置
         cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
