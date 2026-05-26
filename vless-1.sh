@@ -123,4 +123,99 @@ case $CHOICE in
             if [[ " 443 2053 2083 2087 2096 8443 " =~ " ${PORT} " ]] && [ -n "$PORT" ]; then
                 break
             else
-                echo "❌ 错误
+                echo "❌ 错误：输入的端口不在允许列表中，请重新输入！"
+            fi
+        done
+
+        WS_PATH="/vless-cf-tls-ws"
+        
+        # 保存本地临时账本
+        echo "LAST_CF_DOMAIN=\"$CF_DOMAIN\"" > "$CONFIG_FILE"
+        echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
+        echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
+        echo "LAST_WS_PATH=\"$WS_PATH\"" >> "$CONFIG_FILE"
+
+        # 本地秒发 10 年期合规自签名 TLS 证书保底，支持 CF Full 模式
+        echo "🔄 正在本地秒发 10 年期合规自签名 TLS 证书保底..."
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+          -keyout "/etc/cf_vless/server.key" \
+          -out "/etc/cf_vless/server.crt" \
+          -subj "/CN=$CF_DOMAIN" >/dev/null 2>&1
+
+        echo "🚀 正在拉取正规军 Xray 官方二进制核心..."
+        bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
+
+        # 🌟 核心写入：Xray 核心入站配置 (定界符 EOF 绝对顶格，杜绝意外文件结束报错)
+        cat << EOF > /usr/local/etc/xray/config.json
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": $PORT,
+      "listen": "0.0.0.0",
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "$UUID",
+            "level": 0
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/etc/cf_vless/server.crt",
+              "keyFile": "/etc/cf_vless/server.key"
+            }
+          ]
+        },
+        "wsSettings": {
+          "path": "$WS_PATH"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "settings": {}
+    }
+  ]
+}
+EOF
+
+        # 强破权限并配置后台守护
+        chmod 644 /usr/local/etc/xray/config.json
+        chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null
+        
+        systemctl daemon-reload
+        systemctl enable xray >/dev/null 2>&1
+        systemctl restart xray
+
+        deploy_shortcut
+        clear
+        /usr/local/bin/sd
+        ;;
+
+    2)
+        if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo "❌ 未找到节点配置！"; fi
+        ;;
+
+    3)
+        echo "🧹 正在彻底物理剥离服务与清洗环境..."
+        systemctl stop xray 2>/dev/null
+        systemctl disable xray 2>/dev/null
+        rm -rf /usr/local/bin/xray /usr/local/etc/xray /etc/cf_vless /usr/local/bin/sd
+        echo "✅ 卸载清洗完成！"
+        ;;
+    *)
+        exit 1
+        ;;
+esac
