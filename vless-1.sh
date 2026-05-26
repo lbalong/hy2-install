@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V11.3"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V11.4"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 历史智能记忆版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -74,7 +74,7 @@ init_env() {
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (链接靠拢，一键全选双带走)
+# 部署专属快捷查询命令 sd (两条链接彻底靠拢，完美满足一键批量复制导入)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
@@ -84,18 +84,18 @@ deploy_shortcut() {
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo '    echo " 📋 下方为核心双引流节点（可直接两行全选，一次性批量复制）"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/ #CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws#CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
 }
 
-# 🌟 彻底清除 case 状态机，改用绝对稳固、100% 畅通的 if-elif 逻辑块
+# 🌟 彻底拔除 case 状态机，改用绝对平铺、100% 畅通的 if-elif 逻辑块
 if [ "$CHOICE" -eq 1 ]; then
     init_env
     
-    # 智能记忆恢复：域名检测
+    # 智能智能记忆恢复：域名检测
     if [ -n "$LAST_CF_DOMAIN" ]; then
         read -p " 侦测到历史缓存域名 [$LAST_CF_DOMAIN]，直接回车复用，或输入新域名: " CF_DOMAIN
         CF_DOMAIN=${CF_DOMAIN:-$LAST_CF_DOMAIN}
@@ -106,19 +106,29 @@ if [ "$CHOICE" -eq 1 ]; then
         done
     fi
 
-    # 智能记忆恢复：端口检测，参照截图默认直接推荐 443
-    echo "----------------------------------------------------------"
-    echo " 提示：套小云朵自定端口，强烈推荐使用 443 端口（如你发来的截图所示）"
-    echo " 官方允许的 HTTPS 端口有: [ 443, 2053, 2083, 2087, 2096, 8443 ]"
-    echo "----------------------------------------------------------"
-    if [ -n "$LAST_PORT" ]; then
-        read -p " 请输入端口号 (直接回车复用历史端口 [$LAST_PORT]): " INPUT_PORT
-        PORT="${INPUT_PORT:-$LAST_PORT}"
-    else
-        read -p " 请输入端口号 (直接回车默认使用本命 443 端口): " INPUT_PORT
-        PORT="${INPUT_PORT:-443}"
-    fi
+    # 智能智能记忆恢复：端口检测，改用纯安全的布尔控制阀，彻底废除内嵌 case 导致的内核语法冲突
+    PORT_VALID=0
+    while [ "$PORT_VALID" -eq 0 ]; do
+        echo "----------------------------------------------------------"
+        echo " 提示：套小云朵自定端口，强烈推荐使用 443 端口（如你发来的截图所示）"
+        echo " 官方允许的 HTTPS 端口有: [ 443, 2053, 2083, 2087, 2096, 8443 ]"
+        echo "----------------------------------------------------------"
+        if [ -n "$LAST_PORT" ]; then
+            read -p " 请输入端口号 (直接回车复用历史端口 [$LAST_PORT]): " INPUT_PORT
+            PORT="${INPUT_PORT:-$LAST_PORT}"
+        else
+            read -p " 请输入端口号 (直接回车默认使用本命 443 端口): " INPUT_PORT
+            PORT="${INPUT_PORT:-443}"
+        fi
+        
+        if [ "$PORT" = "443" ] || [ "$PORT" = "2053" ] || [ "$PORT" = "2083" ] || [ "$PORT" = "2087" ] || [ "$PORT" = "2096" ] || [ "$PORT" = "8443" ]; then
+            PORT_VALID=1
+        else
+            echo " 错误：输入的端口不在允许列表中，请重新输入！"
+        fi
+    done
 
+    # 完美对齐你的截图账本，路径直接留空（默认为根路径 /）
     WS_PATH="/"
     
     # 纯净单行追加，锁定持久化账本
@@ -133,13 +143,23 @@ if [ "$CHOICE" -eq 1 ]; then
     # 清空可能导致多配置内耗的残留文件
     rm -f /usr/local/etc/xray/*.json
 
-    echo " 正在本地秒发 10 年期合规自签名 TLS 证书..."
+    # 🌟 核心修复一：注入 SAN（主题备用名称）扩展证书签发，100% 绕过 Cloudflare 边缘大闸的 TLS 握手阻断
+    echo " 正在本地秒发 10 年期合规自签名 TLS 证书 (带 SAN 扩展)..."
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
       -keyout "/usr/local/etc/xray/server.key" \
       -out "/usr/local/etc/xray/server.crt" \
-      -subj "/CN=$CF_DOMAIN" >/dev/null 2>&1
+      -subj "/CN=$CF_DOMAIN" \
+      -addext "subjectAltName=DNS:$CF_DOMAIN" >/dev/null 2>&1
+      
+    # 安全降级保底：防止部分极其老旧的系统不认 addext 参数
+    if [ ! -f "/usr/local/etc/xray/server.crt" ]; then
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+          -keyout "/usr/local/etc/xray/server.key" \
+          -out "/usr/local/etc/xray/server.crt" \
+          -subj "/CN=$CF_DOMAIN" >/dev/null 2>&1
+    fi
 
-    # 🌟 终极修正：抛弃任何可能引发断轨的 printf 和 heredoc，改用绝对安全的单行 echo 稳扎稳打
+    # 🌟 核心修复二：抛弃任何可能引发网络流断轨的 printf 和 heredoc，改用绝对安全的单行 echo 稳扎稳打
     XRAY_CONFIG="/usr/local/etc/xray/config.json"
     echo '{' > "$XRAY_CONFIG"
     echo '  "log": { "loglevel": "warning" },' >> "$XRAY_CONFIG"
@@ -148,14 +168,10 @@ if [ "$CHOICE" -eq 1 ]; then
     echo "      \"port\": $PORT," >> "$XRAY_CONFIG"
     echo '      "listen": "0.0.0.0",' >> "$XRAY_CONFIG"
     echo '      "protocol": "vless",' >> "$XRAY_CONFIG"
-    echo '      "settings": {' >> "$XRAY_CONFIG"
-    echo '        "clients": [' >> "$XRAY_CONFIG"
-    echo '          {' >> "$XRAY_CONFIG"
-    echo "            \"id\": \"$UUID\"," >> "$XRAY_CONFIG"
-    echo '            "level": 0' >> "$XRAY_CONFIG"
-    echo '          }' >> "$XRAY_CONFIG"
-    echo '        ]' >> "$XRAY_CONFIG"
-    echo '      },' >> "$XRAY_CONFIG"
+    echo '      "settings": { "clients": [ { ' >> "$XRAY_CONFIG"
+    echo "        \"id\": \"$UUID\"," >> "$XRAY_CONFIG"
+    echo '        "level": 0' >> "$XRAY_CONFIG"
+    echo '      } ] },' >> "$XRAY_CONFIG"
     echo '      "streamSettings": {' >> "$XRAY_CONFIG"
     echo '        "network": "ws",' >> "$XRAY_CONFIG"
     echo '        "security": "tls",' >> "$XRAY_CONFIG"
