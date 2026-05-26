@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.6"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.7"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 端口完全自定版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -27,7 +27,7 @@ IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "6a82e704-9ac8-4fb8-bef1-6c9d7d7e390a")
 
 if [ -z "$IP" ] && [ "$CHOICE" -eq 1 ]; then
-  echo "错误：无法获取服务器公网 IP，请检查网络连接。"
+  echo "错误：无法获取服务器公网 IP，请检查 network 连接。"
   exit 1
 fi
 
@@ -113,7 +113,7 @@ case $CHOICE in
             if [ -n "$CF_DOMAIN" ]; then break; fi
         done
 
-        # 端口卡关校验
+        # 端口自定卡关校验
         while true; do
             echo "----------------------------------------------------------"
             echo " 提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中手动输入一个："
@@ -132,7 +132,7 @@ case $CHOICE in
 
         WS_PATH="/vless-cf-tls-ws"
         
-        # 🌟 终极修复：改用完全不用转义引号的顶格 heredoc 写入临时账本，彻底绝杀反斜杠在内存中剥离的恶性 Bug！
+        # 顶格 heredoc 写入临时账本
         cat << EOF > "$CONFIG_FILE"
 LAST_CF_DOMAIN="$CF_DOMAIN"
 LAST_UUID="$UUID"
@@ -150,7 +150,7 @@ EOF
         echo " 正在拉取正规军 Xray 官方二进制核心..."
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-        # 🌟 核心写入：Xray 核心入站配置 (定界符 EOF 绝对顶格，无损过闸)
+        # 🌟 核心写入：彻底移除错误的 decryption 字段，对齐官方原生纯正入站结构
         cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
@@ -167,8 +167,7 @@ EOF
             "id": "$UUID",
             "level": 0
           }
-        ],
-        "decryption": "none"
+        ]
       },
       "streamSettings": {
         "network": "ws",
