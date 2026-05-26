@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V11.0"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V11.1"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 历史智能记忆版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -76,7 +76,7 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (核心修复：链接合并靠拢，方便老哥一次性打包复制)
+# 部署专属快捷查询命令 sd (链接合并靠拢，方便老哥一次性批量打包复制)
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
@@ -87,12 +87,8 @@ if [ -f "$CF_CONF" ]; then
     echo "=========================================================="
     echo " 📋 下方为核心双引流节点（可直接两行全选，一次性批量复制）"
     echo "=========================================================="
-vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/vless-cf-tls-ws#CF-Domain-$LAST_PORT
-vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/vless-cf-tls-ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT
-    echo "=========================================================="
-    echo " 💡 极速通车对账单："
-    echo " 1. 请确保你在 Cloudflare 后台的【DNS 记录】里已经把【小云朵】点亮（开启代理）。"
-    echo " 2. 请确保在 CF 后台的【SSL/TLS】菜单里，将加密模式改为了【Full (完全)】！"
+vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws#CF-Domain-$LAST_PORT
+vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT
     echo "=========================================================="
 fi
 EOF_SHOW
@@ -103,7 +99,7 @@ case $CHOICE in
     1)
         init_env
         
-        # 🌟 历史智能记忆：检测到历史域名，直接回车即可复用
+        # 🌟 智能记忆：检测到历史域名，直接回车即可复用
         if [ -n "$LAST_CF_DOMAIN" ]; then
             read -p " 侦测到历史缓存域名 [$LAST_CF_DOMAIN]，直接回车复用，或输入新域名: " CF_DOMAIN
             CF_DOMAIN=${CF_DOMAIN:-$LAST_CF_DOMAIN}
@@ -114,119 +110,10 @@ case $CHOICE in
             done
         fi
 
-        # 🌟 历史智能记忆：检测到历史端口，直接回车即可复用，并进行安全卡关
+        # 🌟 智能记忆：检测到历史端口，直接回车即可复用
         while true; do
             echo "----------------------------------------------------------"
             echo " 提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中选择："
             echo "    [ 443, 2053, 2083, 2087, 2096, 8443 ]"
             echo "----------------------------------------------------------"
-            if [ -n "$LAST_PORT" ]; then
-                read -p " 请输入端口号 (直接回车复用历史端口 [$LAST_PORT]): " INPUT_PORT
-                PORT="${INPUT_PORT:-$LAST_PORT}"
-            else
-                read -p " 请纯手动输入一个上述列表中的端口号: " PORT
-            fi
-            
-            case "$PORT" in
-                443|2053|2083|2087|2096|8443)
-                    if [ -n "$PORT" ]; then break 2; fi
-                    ;;
-                *)
-                    echo " 错误：输入的端口不在允许列表中，请重新输入！"
-                    ;;
-            esac
-        done
-
-        WS_PATH="/vless-cf-tls-ws"
-        
-        # 顶格 heredoc 写入本地持久化账本，供下次读取复用
-        cat << EOF > "$CONFIG_FILE"
-LAST_CF_DOMAIN="$CF_DOMAIN"
-LAST_UUID="$UUID"
-LAST_PORT="$PORT"
-LAST_WS_PATH="$WS_PATH"
-EOF
-
-        # 本地秒发 10 年期合规自签名 TLS 证书
-        echo " 正在本地秒发 10 年期合规自签名 TLS 证书保底..."
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-          -keyout "/etc/cf_vless/server.key" \
-          -out "/etc/cf_vless/server.crt" \
-          -subj "/CN=$CF_DOMAIN" >/dev/null 2>&1
-
-        echo " 正在拉取正规军 Xray 官方二进制核心..."
-        bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
-
-        # Xray 核心入站纯净配置
-        cat << EOF > /usr/local/etc/xray/config.json
-{
-  "log": {
-    "loglevel": "warning"
-  },
-  "inbounds": [
-    {
-      "port": $PORT,
-      "listen": "0.0.0.0",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$UUID",
-            "level": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "/etc/cf_vless/server.crt",
-              "keyFile": "/etc/cf_vless/server.key"
-            }
-          ]
-        },
-        "wsSettings": {
-          "path": "$WS_PATH"
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {}
-    }
-  ]
-}
-EOF
-
-        # 强破权限并配置后台守护
-        chmod 644 /usr/local/etc/xray/config.json
-        chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null
-        
-        systemctl daemon-reload
-        systemctl enable xray >/dev/null 2>&1
-        systemctl restart xray
-
-        deploy_shortcut
-        clear
-        /usr/local/bin/sd
-        ;;
-
-    2)
-        if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo " 未找到节点配置！"; fi
-        ;;
-
-    3)
-        echo " 正在彻底物理剥离服务与清洗环境..."
-        systemctl stop xray 2>/dev/null
-        systemctl disable xray 2>/dev/null
-        rm -rf /usr/local/bin/xray /usr/local/etc/xray /etc/cf_vless /usr/local/bin/sd
-        echo " 卸载清洗完成！"
-        ;;
-    *)
-        exit 1
-        ;;
-esac
+            if
