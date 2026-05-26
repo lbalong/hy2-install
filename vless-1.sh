@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.9"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V11.0"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 历史智能记忆版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -76,7 +76,7 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (核心修复：斜杠转义为 %2F 确保 100% 导入，去除公网阻断域名)
+# 部署专属快捷查询命令 sd (核心修复：链接合并靠拢，方便老哥一次性打包复制)
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
@@ -85,18 +85,14 @@ if [ -f "$CF_CONF" ]; then
     source "$CF_CONF"
     clear
     echo "=========================================================="
-    echo " 当前已套【小云朵】的 VLESS-WS-TLS 满血节点导入链接"
+    echo " 📋 下方为核心双引流节点（可直接两行全选，一次性批量复制）"
     echo "=========================================================="
-    echo "🔗 链接一：常规自主域名导入单 (100% 稳固基本盘)"
-    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws#CF-Domain-$LAST_PORT"
-    echo ""
-    echo "🔥 链接二：全球公开 Anycast 专线全自动速飙单 (千兆全自动优选推荐)"
-    echo "vless://$LAST_UUID@104.16.123.96:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT"
+vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/vless-cf-tls-ws#CF-Domain-$LAST_PORT
+vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/vless-cf-tls-ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT
     echo "=========================================================="
-    echo " 极速通车对账单："
+    echo " 💡 极速通车对账单："
     echo " 1. 请确保你在 Cloudflare 后台的【DNS 记录】里已经把【小云朵】点亮（开启代理）。"
     echo " 2. 请确保在 CF 后台的【SSL/TLS】菜单里，将加密模式改为了【Full (完全)】！"
-    echo " 3. 本次已彻底修复客户端解析格式，复制上方任意一条链接即可 100% 秒导入。"
     echo "=========================================================="
 fi
 EOF_SHOW
@@ -107,9 +103,9 @@ case $CHOICE in
     1)
         init_env
         
-        # 🌟 核心优化一：记忆唤醒！自动检测历史输入的域名，直接回车即复用
+        # 🌟 历史智能记忆：检测到历史域名，直接回车即可复用
         if [ -n "$LAST_CF_DOMAIN" ]; then
-            read -p " 检测到上次输入的域名 [$LAST_CF_DOMAIN]，直接回车复用，或输入新域名: " CF_DOMAIN
+            read -p " 侦测到历史缓存域名 [$LAST_CF_DOMAIN]，直接回车复用，或输入新域名: " CF_DOMAIN
             CF_DOMAIN=${CF_DOMAIN:-$LAST_CF_DOMAIN}
         else
             while true; do
@@ -118,14 +114,14 @@ case $CHOICE in
             done
         fi
 
-        # 🌟 核心优化二：记忆唤醒！自动检测历史端口，回车即可复用，且卡关校验
+        # 🌟 历史智能记忆：检测到历史端口，直接回车即可复用，并进行安全卡关
         while true; do
             echo "----------------------------------------------------------"
             echo " 提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中选择："
             echo "    [ 443, 2053, 2083, 2087, 2096, 8443 ]"
             echo "----------------------------------------------------------"
             if [ -n "$LAST_PORT" ]; then
-                read -p " 请输入端口号 (直接回车复用上次的 [$LAST_PORT]): " INPUT_PORT
+                read -p " 请输入端口号 (直接回车复用历史端口 [$LAST_PORT]): " INPUT_PORT
                 PORT="${INPUT_PORT:-$LAST_PORT}"
             else
                 read -p " 请纯手动输入一个上述列表中的端口号: " PORT
