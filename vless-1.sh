@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V11.1"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V11.2"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 历史智能记忆版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -48,18 +48,16 @@ get_geo_tag() {
 # 核心环境清洗与 TCP/BBR 深度性能超频 (16MB 巨型缓冲区)
 init_env() {
     echo "正在向内核物理注入 BBR + 16MB 满血网络超频补丁..."
-    cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-cf-vless-bbr.conf
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.core.rmem_max = 16772160
-net.core.wmem_max = 16772160
-net.ipv4.tcp_rmem = 4096 87380 16772160
-net.ipv4.tcp_wmem = 4096 65536 16772160
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_fastopen = 3
-EOF_SYSCTL
+    echo "net.core.default_qdisc = fq" > /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.core.rmem_max = 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.core.wmem_max = 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_rmem = 4096 87380 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_wmem = 4096 65536 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_tw_reuse = 1" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_fin_timeout = 15" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_keepalive_time = 600" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_fastopen = 3" >> /etc/sysctl.d/99-cf-vless-bbr.conf
     sysctl --system >/dev/null 2>&1
 
     echo "正在清洗基础网络并安装基础组件..."
@@ -76,22 +74,20 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (链接合并靠拢，方便老哥一次性批量打包复制)
+# 部署专属快捷查询命令 sd (改用稳固的连环 echo 写入，消灭 heredoc)
 deploy_shortcut() {
-    cat << 'EOF_SHOW' > /usr/local/bin/sd
-#!/bin/bash
-CF_CONF="/etc/cf_vless/last_cfg.conf"
-if [ -f "$CF_CONF" ]; then
-    source "$CF_CONF"
-    clear
-    echo "=========================================================="
-    echo " 📋 下方为核心双引流节点（可直接两行全选，一次性批量复制）"
-    echo "=========================================================="
-vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws#CF-Domain-$LAST_PORT
-vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=%2Fvless-cf-tls-ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT
-    echo "=========================================================="
-fi
-EOF_SHOW
+    echo '#!/bin/bash' > /usr/local/bin/sd
+    echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
+    echo 'if [ -f "$CF_CONF" ]; then' >> /usr/local/bin/sd
+    echo '    source "$CF_CONF"' >> /usr/local/bin/sd
+    echo '    clear' >> /usr/local/bin/sd
+    echo '    echo "=========================================================="' >> /usr/local/bin/sd
+    echo '    echo " 📋 下方为核心双引流节点（可直接两行全选，一次性批量复制）"' >> /usr/local/bin/sd
+    echo '    echo "=========================================================="' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/vless-cf-tls-ws#CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=/vless-cf-tls-ws&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "=========================================================="' >> /usr/local/bin/sd
+    echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
 }
 
@@ -99,7 +95,7 @@ case $CHOICE in
     1)
         init_env
         
-        # 🌟 智能记忆：检测到历史域名，直接回车即可复用
+        # 智能记忆恢复：域名检测
         if [ -n "$LAST_CF_DOMAIN" ]; then
             read -p " 侦测到历史缓存域名 [$LAST_CF_DOMAIN]，直接回车复用，或输入新域名: " CF_DOMAIN
             CF_DOMAIN=${CF_DOMAIN:-$LAST_CF_DOMAIN}
@@ -110,8 +106,9 @@ case $CHOICE in
             done
         fi
 
-        # 🌟 智能记忆：检测到历史端口，直接回车即可复用
-        while true; do
+        # 智能记忆恢复：端口检测，改用纯安全的布尔控制阀，彻底废除 break 2 带来的内核语法冲突
+        PORT_VALID=false
+        while [ "$PORT_VALID" = false ]; do
             echo "----------------------------------------------------------"
             echo " 提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中选择："
             echo "    [ 443, 2053, 2083, 2087, 2096, 8443 ]"
@@ -125,7 +122,9 @@ case $CHOICE in
             
             case "$PORT" in
                 443|2053|2083|2087|2096|8443)
-                    if [ -n "$PORT" ]; then break 2; fi
+                    if [ -n "$PORT" ]; then
+                        PORT_VALID=true
+                    fi
                     ;;
                 *)
                     echo " 错误：输入的端口不在允许列表中，请重新输入！"
@@ -135,73 +134,68 @@ case $CHOICE in
 
         WS_PATH="/vless-cf-tls-ws"
         
-        # 顶格 heredoc 写入本地持久化账本
-        cat << EOF > "$CONFIG_FILE"
-LAST_CF_DOMAIN="$CF_DOMAIN"
-LAST_UUID="$UUID"
-LAST_PORT="$PORT"
-LAST_WS_PATH="$WS_PATH"
-EOF
+        # 抛弃 heredoc，改用最利落的安全连环 echo 写入本地持久化账本
+        echo "LAST_CF_DOMAIN=\"$CF_DOMAIN\"" > "$CONFIG_FILE"
+        echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
+        echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
+        echo "LAST_WS_PATH=\"$WS_PATH\"" >> "$CONFIG_FILE"
 
         echo " 正在拉取正规军 Xray 官方二进制核心..."
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-        # 🌟 核心修复一：强力清空原有模板，防止 Xray 启动时多账本混合导致闪退
+        # 强力清空原有残留模板
         rm -f /usr/local/etc/xray/*.json
 
-        # 🌟 核心修复二：直接在 Xray 属地内生成自签证书，彻底打破跨目录读取阻断
         echo " 正在本地秒发 10 年期合规自签名 TLS 证书并移籍..."
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
           -keyout "/usr/local/etc/xray/server.key" \
           -out "/usr/local/etc/xray/server.crt" \
           -subj "/CN=$CF_DOMAIN" >/dev/null 2>&1
 
-        # Xray 核心入站配置
-        cat << EOF > /usr/local/etc/xray/config.json
-{
-  "log": {
-    "loglevel": "warning"
-  },
-  "inbounds": [
-    {
-      "port": $PORT,
-      "listen": "0.0.0.0",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$UUID",
-            "level": 0
-          }
-        ]
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "/usr/local/etc/xray/server.crt",
-              "keyFile": "/usr/local/etc/xray/server.key"
-            }
-          ]
-        },
-        "wsSettings": {
-          "path": "$WS_PATH"
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {}
-    }
-  ]
-}
-EOF
+        # 🌟 核心改动：用单引号加 printf 结构拼装 Xray 账本，100% 免除任何 Heredoc 的闭合雷区
+        printf '%s\n' '{' \
+          '  "log": {' \
+          '    "loglevel": "warning"' \
+          '  },' \
+          '  "inbounds": [' \
+          '    {' \
+          "      \"port\": $PORT," \
+          '      "listen": "0.0.0.0",' \
+          '      "protocol": "vless",' \
+          '      "settings": {' \
+          '        "clients": [' \
+          '          {' \
+          "            \"id\": \"$UUID\"," \
+          '            "level": 0' \
+          '          }' \
+          '        ]' \
+          '      },' \
+          '      "streamSettings": {' \
+          '        "network": "ws",' \
+          '        "security": "tls",' \
+          '        "tlsSettings": {' \
+          '          "certificates": [' \
+          '            {' \
+          '              "certificateFile": "/usr/local/etc/xray/server.crt",' \
+          '              "keyFile": "/usr/local/etc/xray/server.key"' \
+          '            }' \
+          '          ]' \
+          '        },' \
+          '        "wsSettings": {' \
+          "          \"path\": \"$WS_PATH\"" \
+          '        }' \
+          '      }' \
+          '    }' \
+          '  ],' \
+          '  "outbounds": [' \
+          '    {' \
+          '      "protocol": "freedom",' \
+          '      "settings": {}' \
+          '    }' \
+          '  ]' \
+          '}' > /usr/local/etc/xray/config.json
 
-        # 🌟 核心修复三：对配置文件和证书链进行全盘物理所有权变更，确保非 root 进程能 100% 畅通对账
+        # 对配置文件和证书链进行全盘物理权限打通
         chmod 644 /usr/local/etc/xray/config.json /usr/local/etc/xray/server.crt
         chmod 600 /usr/local/etc/xray/server.key
         chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null || chown -R xray:xray /usr/local/etc/xray 2>/dev/null
