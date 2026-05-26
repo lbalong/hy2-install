@@ -6,14 +6,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 铁律第一步：开局直接物理创建核心目录
+# 铁律第一步：开局直接物理创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Sing-Box 调优思路：VLESS + WS + Cloudflare 纯净一键版"
+echo "    Cloudflare 小云朵避风港：VLESS + WS + TLS 终极一键版"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-WS 盾牌节点 (16MB 内核超频 + 智能记忆版)"
+echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 端口完全自定版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 3. 彻底卸载节点服务"
 echo "=========================================================="
@@ -62,7 +62,7 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (由脚本全自动组装两条完全体链接，彻底消灭手动优化)
+# 部署专属快捷查询命令 sd (彻底解除 443 死锁，你填什么，这里就输出什么)
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
@@ -71,17 +71,17 @@ if [ -f "$CF_CONF" ]; then
     source "$CF_CONF"
     clear
     echo "=========================================================="
-    echo "📋 当前已套【小云朵】的 VLESS-WS 完全体导入链接"
+    echo "📋 当前已套【小云朵】的 VLESS-WS-TLS 满血节点导入链接"
     echo "=========================================================="
-    echo "🔗 链接一：常规域名导入单"
-    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:443?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH#CF_普通版_$LAST_PORT"
+    echo "🔗 链接一：常规自主端口导入单"
+    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH#CF_自定端口_$LAST_PORT"
     echo ""
-    echo "🔥 链接二：大厂专线全自动优选速飙单 (🔥 电信千兆墙裂推荐)"
-    echo "vless://$LAST_UUID@www.visa.com.sg:443?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH&host=$LAST_CF_DOMAIN#CF_满血优选_$LAST_PORT"
+    echo "🔥 链接二：大厂专线全自动优选速飙单 (🔥 强烈推荐此链接导入)"
+    echo "vless://$LAST_UUID@www.visa.com.sg:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH&host=$LAST_CF_DOMAIN#CF_满血优选_$LAST_PORT"
     echo "=========================================================="
     echo "💡 极速通车核对单："
     echo " 1. 请确保你在 Cloudflare 后台的【DNS 记录】里已经把【小云朵】点亮（开启代理）。"
-    echo " 2. 请确保在 CF 的【SSL/TLS】菜单里，将加密模式改为了【Flexible (灵活)】！"
+    echo " 2. 请确保在 CF 后台的【SSL/TLS】菜单里，将加密模式改为了【Full (完全)】或【Strict (严格)】！"
     echo " 3. 老哥直接复制上面的【链接二】导入客户端，即可直接通车，免去任何手动调校。"
     echo "=========================================================="
 fi
@@ -93,42 +93,52 @@ case $CHOICE in
     1)
         init_env
         
-        # 智能收集域名（带历史记忆）
-        if [ -n "$LAST_CF_DOMAIN" ]; then
-            read -p "👉 请输入你在 CF 托付的域名 (回车自动复用: $LAST_CF_DOMAIN): " CF_DOMAIN
-            CF_DOMAIN=${CF_DOMAIN:-$LAST_CF_DOMAIN}
-        else
-            while true; do
-                read -p "👉 请输入你在 Cloudflare 解析好的完整域名 (例如 cf.099889.xyz): " CF_DOMAIN
-                if [ -n "$CF_DOMAIN" ]; then break; fi
-            done
-        fi
+        # 智能收集域名
+        while true; do
+            read -p "👉 请输入你在 Cloudflare 解析好的完整域名 (例如 cf.099889.xyz): " CF_DOMAIN
+            if [ -n "$CF_DOMAIN" ]; then break; fi
+        done
 
-        # 🌟 核心修复一：增加端口询问闸口，且明确提醒支持的 HTTP 端口范围
-        echo "----------------------------------------------------------"
-        echo "💡 提示：套小云朵必须使用 CF 官方指定的 HTTP 标准端口："
-        echo "   [ 80, 8080, 8880, 2052, 2082, 2086, 2095 ]"
-        if [ -n "$LAST_PORT" ]; then
-            read -p "👉 请输入 VPS 监听端口 (直接回车复用上次的: $LAST_PORT): " INPUT_PORT
-            PORT="${INPUT_PORT:-$LAST_PORT}"
-        else
-            read -p "👉 请输入 VPS 监听端口 (直接回车默认使用高位合规 8080): " INPUT_PORT
-            PORT="${INPUT_PORT:-8080}"
-        fi
-        echo "=========================================================="
+        # 🌟 核心修复一：强制要求老哥纯手动输入端口，不搞任何擅自做主的越权指派
+        while true; do
+            echo "----------------------------------------------------------"
+            echo "⚠️  注意：套小云朵且链接内保留自定端口，必须使用 CF 官方支持的 HTTPS 规范端口："
+            echo "   👉 [ 443, 2053, 2083, 2087, 2096, 8443 ]"
+            echo "----------------------------------------------------------"
+            read -p "✍️ 请纯手动输入上面列表中的一个端口号: " PORT
+            if [[ " 443 2053 2083 2087 2096 8443 " =~ " ${PORT} " ]] && [ -n "$PORT" ]; then
+                break
+            else
+                echo "❌ 错误：输入的端口不在 Cloudflare 官方支持的 HTTPS 允许列表中，请重新输入！"
+            fi
+        done
 
-        WS_PATH="/vless-cf-ws"
+        WS_PATH="/vless-cf-tls-ws"
         
-        # 保存本地账本
+        # 保存本地临时账本
         echo "LAST_CF_DOMAIN=\"$CF_DOMAIN\"" > "$CONFIG_FILE"
         echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
         echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
         echo "LAST_WS_PATH=\"$WS_PATH\"" >> "$CONFIG_FILE"
 
+        # 🌟 核心修复二：现场通过 Let's Encrypt 摇号为你的域名下发正规军全套 TLS 证书
+        echo "🔄 正在请求 Let's Encrypt 官方签发合规域名证书..."
+        curl -sSL https://get.acme.sh | sh -s email=mycfvless@gmail.com
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        ~/.acme.sh/acme.sh --issue -d "$CF_DOMAIN" --standalone
+        
+        if [ $? -ne 0 ] && [ ! -d "/root/.acme.sh/${CF_DOMAIN}_ecc" ] && [ ! -d "/root/.acme.sh/${CF_DOMAIN}" ]; then
+            echo "❌ 证书申请彻底失败，请务必检查域名是否已解析成功，且 80 端口没有被占用！"
+            exit 1
+        fi
+        
+        # 稳妥锚定证书安装路径
+        ~/.acme.sh/acme.sh --install-cert -d "$CF_DOMAIN" --key-file "/etc/cf_vless/server.key" --fullchain-file "/etc/cf_vless/server.crt"
+
         echo "🚀 正在拉取正规军 Xray 官方二进制核心..."
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-        # 🌟 核心修复二：将入站端口死死对齐老哥输入的 $PORT 变量
+        # 🌟 核心修复三：写入 100% 对齐官方满血 HTTPS 规范的 VLESS + WS + TLS 纯净账本
         cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
@@ -150,6 +160,15 @@ case $CHOICE in
       },
       "streamSettings": {
         "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificates": [
+            {
+              "certificateFile": "/etc/cf_vless/server.crt",
+              "keyFile": "/etc/cf_vless/server.key"
+            }
+          ]
+        },
         "wsSettings": {
           "path": "$WS_PATH"
         }
