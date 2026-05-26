@@ -2,164 +2,81 @@
 
 set -e
 
-clear
+echo "======================================"
+echo " Cloudflare VPS 防直扫安全加固"
+echo "======================================"
 
-echo "===================================="
-echo " Cloudflare VLESS-WS-TLS 一键脚本"
-echo "===================================="
-echo ""
-
-read -p "请输入域名: " DOMAIN
-read -p "请输入WS路径(默认 /ray): " WSPATH_INPUT
-read -p "请输入端口(默认 8443): " PORT_INPUT
-
-# 默认值处理
-WSPATH=${WSPATH_INPUT:-/ray}
-PORT=${PORT_INPUT:-8443}
-
-UUID=$(cat /proc/sys/kernel/random/uuid)
+read -p "请输入你的业务端口(如8443): " PORT
+PORT=${PORT:-8443}
 
 echo ""
 echo "安装依赖..."
-echo ""
-
 apt update -y
-apt install -y curl wget socat cron unzip tar openssl ufw
+apt install -y iptables-persistent curl
 
 echo ""
-echo "停止旧 sing-box..."
-echo ""
-
-systemctl stop sing-box 2>/dev/null || true
-
-echo ""
-echo "安装 sing-box..."
-echo ""
-
-bash <(curl -fsSL https://sing-box.app/deb-install.sh)
-
-mkdir -p /root/cert
-mkdir -p /etc/sing-box
+echo "获取 Cloudflare IP 段..."
+CF_V4=$(curl -s https://www.cloudflare.com/ips-v4)
+CF_V6=$(curl -s https://www.cloudflare.com/ips-v6)
 
 echo ""
-echo "安装 acme.sh..."
-echo ""
-
-curl https://get.acme.sh | sh
-source ~/.bashrc || true
-
-echo ""
-echo "关闭占用80端口服务..."
-echo ""
-
-systemctl stop nginx 2>/dev/null || true
-systemctl stop apache2 2>/dev/null || true
+echo "清空旧防火墙规则..."
+iptables -F
+iptables -X
+ip6tables -F
+ip6tables -X
 
 echo ""
-echo "申请证书..."
-echo ""
+echo "设置默认策略：全部拒绝入站..."
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
 
-~/.acme.sh/acme.sh --issue -d $DOMAIN --standalone --keylength ec-256 --force
-
-echo ""
-echo "安装证书..."
-echo ""
-
-~/.acme.sh/acme.sh --install-cert -d $DOMAIN \
---ecc \
---fullchain-file /root/cert/fullchain.cer \
---key-file /root/cert/private.key
+ip6tables -P INPUT DROP
+ip6tables -P FORWARD DROP
+ip6tables -P OUTPUT ACCEPT
 
 echo ""
-echo "写入配置..."
-echo ""
-
-cat > /etc/sing-box/config.json <<EOF
-{
-  "log": {
-    "level": "info"
-  },
-  "inbounds": [
-    {
-      "type": "vless",
-      "listen": "::",
-      "listen_port": $PORT,
-      "users": [
-        {
-          "uuid": "$UUID"
-        }
-      ],
-      "transport": {
-        "type": "ws",
-        "path": "$WSPATH"
-      },
-      "tls": {
-        "enabled": true,
-        "server_name": "$DOMAIN",
-        "certificate_path": "/root/cert/fullchain.cer",
-        "key_path": "/root/cert/private.key"
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct"
-    }
-  ]
-}
-EOF
+echo "允许本地回环..."
+iptables -A INPUT -i lo -j ACCEPT
+ip6tables -A INPUT -i lo -j ACCEPT
 
 echo ""
-echo "开启BBR..."
-echo ""
-
-grep -q "tcp_congestion_control=bbr" /etc/sysctl.conf || cat >> /etc/sysctl.conf <<EOF
-
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-EOF
-
-sysctl -p
+echo "允许已建立连接..."
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 echo ""
-echo "开放端口..."
-echo ""
-
-ufw allow $PORT/tcp 2>/dev/null || true
-
-echo ""
-echo "重启 sing-box..."
-echo ""
-
-systemctl daemon-reload
-systemctl enable sing-box
-systemctl restart sing-box
-
-sleep 3
-
-STATUS=$(systemctl is-active sing-box)
-
-ENCODED_PATH=$(printf '%s' "$WSPATH" | sed 's/\//%2F/g')
-
-LINK="vless://${UUID}@${DOMAIN}:${PORT}?encryption=none&security=tls&type=ws&host=${DOMAIN}&path=${ENCODED_PATH}#CF-WS"
+echo "放行 SSH（防止锁机）"
+iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
 
 echo ""
-echo "===================================="
-echo " 部署完成"
-echo "===================================="
+echo "只放行业务端口：$PORT（仅Cloudflare）"
+
+for ip in $CF_V4; do
+    iptables -A INPUT -p tcp -s $ip --dport $PORT -j ACCEPT
+done
+
+for ip in $CF_V6; do
+    ip6tables -A INPUT -p tcp -s $ip --dport $PORT -j ACCEPT
+done
+
 echo ""
-echo "状态: $STATUS"
+echo "保存规则..."
+netfilter-persistent save
+
 echo ""
-echo "节点链接:"
+echo "======================================"
+echo " 完成"
+echo "======================================"
 echo ""
-echo "$LINK"
+echo "当前效果："
+echo "- VPS 端口 $PORT 不再对公网直接开放"
+echo "- 只允许 Cloudflare 回源访问"
+echo "- 扫描器无法直接命中服务"
 echo ""
-echo "===================================="
-echo ""
-echo "Cloudflare设置："
-echo ""
-echo "1. 小云朵必须橙色"
-echo "2. SSL模式必须 Full / Full(strict)"
-echo ""
-echo "推荐端口：8443 / 2053 / 2083 / 2087"
+echo "注意："
+echo "- SSH(22) 已保留"
+echo "- 如果你改端口，需要重新运行脚本"
 echo ""
