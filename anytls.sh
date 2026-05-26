@@ -11,9 +11,9 @@ mkdir -p /etc/sing-box
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Sing-Box 官方原生规范：VLESS-Reality 完全体 (联动 sd)"
+echo "    Sing-Box 官方原生规范：VLESS-Reality 满血版 (联动 sd)"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-Reality 节点 (BBR加速 + 借尸还魂无证书版)"
+echo " 1. 安装/更新 VLESS-Reality 节点 (16MB内核超频 + TFO免握手版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 3. 彻底卸载 VLESS-Reality 服务"
 echo "=========================================================="
@@ -41,14 +41,20 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境清洗与 TCP/BBR 深度性能榨干
+# 🌟 优化一：100% 榨干 TCP 流速的 16MB 巨型网络管道
 init_env() {
-    echo "🚀 正在向内核物理注入 BBR + FQ 拥塞控制算法 (榨干 TCP 流速)..."
+    echo "🚀 正在向内核物理注入 BBR + 16MB 满血网络超频补丁..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-vless-bbr.conf
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-net.core.rmem_max = 8388608
-net.core.wmem_max = 8388608
+net.core.rmem_max = 16772160
+net.core.wmem_max = 16772160
+net.ipv4.tcp_rmem = 4096 87380 16772160
+net.ipv4.tcp_wmem = 4096 65536 16772160
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_fastopen = 3
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
@@ -59,7 +65,7 @@ EOF_SYSCTL
       yum install -y -q curl wget tar openssl net-tools iptables
     fi
 
-    echo "🔓 正在物理清理内部防火墙残留（全开接单状态）..."
+    echo "🔓 正在物理清理内部防火墙残留..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
     iptables -F && iptables -X
@@ -123,7 +129,7 @@ case $CHOICE in
         chmod +x /usr/local/bin/sing-box
         rm -rf sing-box*
 
-        # 🌟 核心调优：动态呼叫内核，生成正规军 VLESS 所需的专属密钥对和参数
+        # 动态生成密钥对
         UUID=$(/usr/local/bin/sing-box generate uuid 2>/dev/null || cat /proc/sys/kernel/random/uuid)
         KEY_PAIR=$(/usr/local/bin/sing-box generate reality-keypair)
         PRIVATE_KEY=$(echo "$KEY_PAIR" | grep "PrivateKey" | awk '{print $2}' | tr -d '"')
@@ -131,7 +137,7 @@ case $CHOICE in
         SHORT_ID=$(openssl rand -hex 8)
         DEST_SERVER="www.microsoft.com"
 
-        # 🌟 核心：写入 100% 符合官方标准规范的 VLESS + Reality 满血版账本
+        # 🌟 优化二：入站配置强行挂载 tcp_fast_open 与 tcp_multi_path 极速起步外挂
         cat << EOF > /etc/sing-box/config.json
 {
   "log": {
@@ -143,6 +149,8 @@ case $CHOICE in
       "tag": "vless-reality-in",
       "listen": "0.0.0.0",
       "listen_port": $PORT,
+      "tcp_fast_open": true,
+      "tcp_multi_path": true,
       "users": [
         {
           "uuid": "$UUID",
@@ -200,13 +208,12 @@ EOF
         systemctl enable sing-box >/dev/null 2>&1
         systemctl restart sing-box
         
-        # 动态组装完全体链接（对齐最新标准客户端规范）
+        # 动态组装完全体链接
         GEO_TAG=$(get_geo_tag)
         REALITY_LINK="vless://$UUID@$IP:$PORT?security=reality&sni=$DEST_SERVER&fp=chrome&pbk=$PUBLIC_KEY&sid=$SHORT_ID&flow=xtls-rprx-vision&type=tcp&headerType=none#Reality_${GEO_TAG}"
         
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Reality_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        # 兼容处理：如果老账本里有旧的 AnyTLS 标志则顺手超度删掉
         sed -i '/#AnyTLS_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         echo "$REALITY_LINK" >> /etc/hy2_tuic/saved_links.txt
         
