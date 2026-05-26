@@ -2,7 +2,7 @@
 set -e
 clear
 
-# 铁律第一步：物理创建核心账本目录
+# 铁律第一步：物理创建核心账本目录，确保所有账本读写绝不踩空
 mkdir -p /etc/cf_vless
 mkdir -p /root/cert
 mkdir -p /etc/sing-box
@@ -25,19 +25,18 @@ echo " 3. 彻底卸载节点服务"
 echo "=========================================================="
 read -p "请选择操作 [1-3]: " CHOICE
 
-# 部署专属快捷查询命令 sd (双节点靠拢紧挨，方便一键全选批量复制)
+# 部署专属快捷查询命令 sd (核心修复：直接读取补齐后的 LAST_UUID 和 LAST_ENCODED_PATH)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
     echo 'if [ -f "$CF_CONF" ]; then' >> /usr/local/bin/sd
     echo '    source "$CF_CONF"' >> /usr/local/bin/sd
     echo '    clear' >> /usr/local/bin/sd
-    echo '    ENCODED_PATH=$(printf "%s" "$LAST_WSPATH" | sed "s/\//%2F/g")' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo '    echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$ENCODED_PATH#CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$ENCODED_PATH#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@104.16.132.229:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
@@ -57,7 +56,7 @@ if [ "$CHOICE" -eq 1 ]; then
     echo "net.ipv4.tcp_fastopen = 3" >> /etc/sysctl.d/99-cf-vless-bbr.conf
     sysctl --system >/dev/null 2>&1
 
-    echo "正在拉取基础系统组件..."
+    echo "正在拉取系统组件..."
     apt update -y && apt install -y curl wget socat cron unzip tar openssl ufw jq
 
     echo "强力清洗本地残留进程..."
@@ -66,7 +65,7 @@ if [ "$CHOICE" -eq 1 ]; then
     systemctl stop nginx 2>/dev/null || true
     systemctl stop apache2 2>/dev/null || true
 
-    # 🌟 特色功能一：历史智能记忆复用大开闸
+    # 智能历史记忆恢复：域名
     if [ -n "$LAST_DOMAIN" ]; then
         read -p " 请输入域名 (直接回车复用历史域名 [$LAST_DOMAIN]): " DOMAIN_INPUT
         DOMAIN=${DOMAIN_INPUT:-$LAST_DOMAIN}
@@ -77,7 +76,7 @@ if [ "$CHOICE" -eq 1 ]; then
         done
     fi
 
-    # 🌟 特色功能二：智能域名 IP 双向安全对账核验
+    # 智能域名 IP 双向安全对账
     echo "正在请求公网 DNS 校验域名解析账目..."
     DOMAIN_IP=$(curl -s4 "https://1.1.1.1/dns-query?name=$DOMAIN" -H "accept: application/dns-json" | grep -oE '"data":"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"' | head -n 1 | awk -F'"' '{print $4}')
     [ -z "$DOMAIN_IP" ] && DOMAIN_IP=$(getent ahosts "$DOMAIN" | awk '{print $1}' | head -n 1 || echo "")
@@ -125,10 +124,15 @@ if [ "$CHOICE" -eq 1 ]; then
         fi
     done
 
-    # 锁定本地临时缓存账本，供下次读取复用
+    # 提前对路径进行标准 URL 编码，防止客户端识别截断
+    ENCODED_PATH=$(printf '%s' "$WSPATH" | sed 's/\//%2F/g')
+
+    # 🌟 核心修复：将关键的 UUID 和编码后的路径百分百锁死进持久化记忆账本
     echo "LAST_DOMAIN=\"$DOMAIN\"" > "$CONFIG_FILE"
     echo "LAST_WSPATH=\"$WSPATH\"" >> "$CONFIG_FILE"
     echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
+    echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
+    echo "LAST_ENCODED_PATH=\"$ENCODED_PATH\"" >> "$CONFIG_FILE"
 
     echo "安装 sing-box 官方正规军内核..."
     bash <(curl -fsSL https://sing-box.app/deb-install.sh)
