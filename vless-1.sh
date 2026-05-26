@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.7"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.8"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 端口完全自定版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -76,7 +76,7 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (结束标识绝对顶格)
+# 部署专属快捷查询命令 sd (核心修复：备注彻底换成纯英文，解决链接无法导入的死穴)
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
@@ -88,10 +88,10 @@ if [ -f "$CF_CONF" ]; then
     echo " 当前已套【小云朵】的 VLESS-WS-TLS 满血节点导入链接"
     echo "=========================================================="
     echo "🔗 链接一：常规自主端口导入单"
-    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH#CF_自定端口_$LAST_PORT"
+    echo "vless://$LAST_UUID@$LAST_CF_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH#CF-Domain-$LAST_PORT"
     echo ""
-    echo " 链接二：全球泛公开专线全自动速飙单 (智能一键导入推荐)"
-    echo "vless://$LAST_UUID@cname.cloudflare.com:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH&host=$LAST_CF_DOMAIN#CF_满血优选_$LAST_PORT"
+    echo " 链接二：全球公开前端官网全自动速飙单 (智能一键导入推荐)"
+    echo "vless://$LAST_UUID@www.cloudflare.com:$LAST_PORT?encryption=none&security=tls&sni=$LAST_CF_DOMAIN&type=ws&path=$LAST_WS_PATH&host=$LAST_CF_DOMAIN#CF-Optimized-$LAST_PORT"
     echo "=========================================================="
     echo " 极速通车对账单："
     echo " 1. 请确保你在 Cloudflare 后台的【DNS 记录】里已经把【小云朵】点亮（开启代理）。"
@@ -150,7 +150,7 @@ EOF
         echo " 正在拉取正规军 Xray 官方二进制核心..."
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-        # 🌟 核心写入：彻底移除错误的 decryption 字段，对齐官方原生纯正入站结构
+        # 核心写入：Xray 核心入站配置
         cat << EOF > /usr/local/etc/xray/config.json
 {
   "log": {
