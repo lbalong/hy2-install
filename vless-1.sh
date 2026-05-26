@@ -1,4 +1,4 @@
-#!/bin/bash
+script = """#!/bin/bash
 
 # 检查是否为 Root 用户
 if [ "$EUID" -ne 0 ]; then
@@ -162,33 +162,33 @@ case $CHOICE in
             "id": "$UUID",
             "level": 0
           }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
+                ],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "ws",
+                "security": "tls",
+                "tlsSettings": {
+                  "certificates": [
+                    {
+                      "certificateFile": "/etc/cf_vless/server.crt",
+                      "keyFile": "/etc/cf_vless/server.key"
+                    }
+                  ]
+                },
+                "wsSettings": {
+                  "path": "$WS_PATH"
+                }
+              }
+            }
+          ],
+          "outbounds": [
             {
-              "certificateFile": "/etc/cf_vless/server.crt",
-              "keyFile": "/etc/cf_vless/server.key"
+              "protocol": "freedom",
+              "settings": {}
             }
           ]
-        },
-        "wsSettings": {
-          "path": "$WS_PATH"
         }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {}
-    }
-  ]
-}
 EOF
 
         # 强破权限并配置后台守护
@@ -218,4 +218,9 @@ EOF
     *)
         exit 1
         ;;
-esac
+esac"""
+
+lines = script.split('\n')
+for idx, line in enumerate(lines):
+    if "deploy_shortcut" in line or "EOF" in line:
+        print(f"Line {idx+1}: {line}")
