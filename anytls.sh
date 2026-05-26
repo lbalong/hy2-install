@@ -14,10 +14,6 @@ fi
 read -p "请输入监听端口(默认443): " PORT
 PORT=${PORT:-443}
 
-read -p "请输入节点密码: " PASSWORD
-
-UUID=$(cat /proc/sys/kernel/random/uuid)
-
 ARCH=$(uname -m)
 
 if [[ "$ARCH" == "x86_64" ]]; then
@@ -94,6 +90,8 @@ mkdir -p /etc/sing-box
 
 IP=$(curl -s ipv4.ip.sb)
 
+PASSWORD=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-24)
+
 echo
 echo "生成配置..."
 
@@ -156,6 +154,8 @@ if command -v ufw >/dev/null 2>&1; then
     ufw allow ${PORT}/tcp
 fi
 
+NODE_LINK="anytls://${PASSWORD}@${IP}:${PORT}?security=tls&sni=www.microsoft.com#AnyTLS"
+
 echo
 echo "======================================"
 echo " 安装完成"
@@ -164,26 +164,13 @@ echo "======================================"
 echo
 echo "服务器IP: ${IP}"
 echo "端口: ${PORT}"
-echo "密码: ${PASSWORD}"
+echo "随机密码: ${PASSWORD}"
 
 echo
-echo "客户端配置："
+echo "AnyTLS 节点链接："
 echo
-
-cat <<CONFIG
-{
-  "type": "anytls",
-  "server": "${IP}",
-  "server_port": ${PORT},
-  "password": "${PASSWORD}"
-}
-CONFIG
+echo "${NODE_LINK}"
 
 echo
-echo "======================================"
 echo "BBR状态："
 sysctl net.ipv4.tcp_congestion_control
-
-echo
-echo "运行状态："
-systemctl status sing-box --no-pager
