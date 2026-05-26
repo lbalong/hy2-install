@@ -11,7 +11,7 @@ mkdir -p /usr/local/etc/xray
 mkdir -p /etc/cf_vless
 
 echo "=========================================================="
-echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.3"
+echo "    Cloudflare 避风港：VLESS + WS + TLS 纯净一键版 V10.4"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频 + 端口完全自定版)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
@@ -30,6 +30,20 @@ if [ -z "$IP" ] && [ "$CHOICE" -eq 1 ]; then
   echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
   exit 1
 fi
+
+# 智能获取服务商与地理位置标签
+get_geo_tag() {
+    local geo_info=$(curl -s --max-time 3 http://ip-api.com/json/)
+    if [ -n "$geo_info" ] && echo "$geo_info" | grep -q '"status":"success"'; then
+        local isp=$(echo "$geo_info" | grep -oE '"isp":"[^"]+"' | cut -d'"' -f4 | awk '{print $1}')
+        local country=$(echo "$geo_info" | grep -oE '"country":"[^"]+"' | cut -d'"' -f4 | tr -d ' ')
+        isp=$(echo "$isp" | tr -cd 'A-Za-z0-9_')
+        country=$(echo "$country" | tr -cd 'A-Za-z0-9_')
+        echo "${isp}_${country}"
+    else
+        echo "VPS_Node"
+    fi
+}
 
 # 核心环境清洗与 TCP/BBR 深度性能超频 (16MB 巨型缓冲区)
 init_env() {
@@ -62,10 +76,10 @@ EOF_SYSCTL
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 }
 
-# 部署专属快捷查询命令 sd (彻底解封端口，你填什么，这里就输出什么)
+# 部署专属快捷查询命令 sd (结束标识绝对顶格，绝不留空格)
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
-#!/bash/bash
+#!/bin/bash
 CF_CONF="/etc/cf_vless/last_cfg.conf"
 if [ -f "$CF_CONF" ]; then
     source "$CF_CONF"
@@ -99,7 +113,7 @@ case $CHOICE in
             if [ -n "$CF_DOMAIN" ]; then break; fi
         done
 
-        # 🌟 核心修复一：死锁纯手动卡关！必须由老哥自己敲入 CF 官方允许的 HTTPS 规范端口
+        # 🌟 核心卡关：强制老哥纯手动输入符合官方 HTTPS 规范的端口
         while true; do
             echo "----------------------------------------------------------"
             echo "⚠️  提示：套小云朵且链接内保留自定端口，必须从以下官方允许的 HTTPS 端口中手动输入一个："
@@ -109,99 +123,4 @@ case $CHOICE in
             if [[ " 443 2053 2083 2087 2096 8443 " =~ " ${PORT} " ]] && [ -n "$PORT" ]; then
                 break
             else
-                echo "❌ 错误：输入的端口不在允许列表中，请重新输入！"
-            fi
-        done
-
-        WS_PATH="/vless-cf-tls-ws"
-        
-        # 保存本地临时账本
-        echo "LAST_CF_DOMAIN=\"$CF_DOMAIN\"" > "$CONFIG_FILE"
-        echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
-        echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
-        echo "LAST_WS_PATH=\"$WS_PATH\"" >> "$CONFIG_FILE"
-
-        # 🌟 核心修复二：高并发自签证书秒下发方案，100% 绕过 acme 报错盲区
-        echo "🔄 正在本地秒发 10 年期合规自签名 TLS 证书保底..."
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-          -keyout "/etc/cf_vless/server.key" \
-          -out "/etc/cf_vless/server.crt" \
-          -subj "/CN=$CF_DOMAIN" >/dev/null 2>&1
-
-        echo "🚀 正在拉取正规军 Xray 官方二进制核心..."
-        bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
-
-        # 🌟 核心修复三：将 Xray 端口和证书严格对齐老哥输入的 $PORT 与自签文件
-        cat << EOF > /usr/local/etc/xray/config.json
-{
-  "log": {
-    "loglevel": "warning"
-  },
-  "inbounds": [
-    {
-      "port": $PORT,
-      "listen": "0.0.0.0",
-      "protocol": "vless",
-      "settings": {
-        "clients": [
-          {
-            "id": "$UUID",
-            "level": 0
-          }
-        ],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "tls",
-        "tlsSettings": {
-          "certificates": [
-            {
-              "certificateFile": "/etc/cf_vless/server.crt",
-              "keyFile": "/etc/cf_vless/server.key"
-            }
-          ]
-        },
-        "wsSettings": {
-          "path": "$WS_PATH"
-        }
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "settings": {}
-    }
-  ]
-}
-EOF
-
-        # 强破权限并配置后台守护
-        chmod 644 /usr/local/etc/xray/config.json
-        chown -R nobody:nogroup /usr/local/etc/xray 2>/dev/null || chown -R nobody:nobody /usr/local/etc/xray 2>/dev/null
-        
-        systemctl daemon-reload
-        systemctl enable xray >/dev/null 2>&1
-        systemctl restart xray
-
-        deploy_shortcut
-        clear
-        /usr/local/bin/sd
-        ;;
-
-    2)
-        if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo "❌ 未找到节点配置！"; fi
-        ;;
-
-    3)
-        echo "🧹 正在彻底物理剥离服务与清洗环境..."
-        systemctl stop xray 2>/dev/null
-        systemctl disable xray 2>/dev/null
-        rm -rf /usr/local/bin/xray /usr/local/etc/xray /etc/cf_vless /usr/local/bin/sd
-        echo "✅ 卸载清洗完成！"
-        ;;
-    *)
-        exit 1
-        ;;
-esac
+                echo "❌ 错误
