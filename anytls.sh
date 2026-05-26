@@ -2,53 +2,71 @@
 
 set -e
 
-echo "======================================"
-echo " AnyTLS 高性能一键脚本"
-echo "======================================"
+clear
+
+echo "==========================================="
+echo "   AnyTLS + sing-box 一键安装脚本"
+echo "==========================================="
 
 if [[ $EUID -ne 0 ]]; then
     echo "请使用 root 运行"
     exit 1
 fi
 
-read -p "请输入端口 (默认443，回车随机): " PORT
+echo
+read -p "请输入端口（默认443，输入 r 为随机端口）: " PORT
 
 if [[ -z "$PORT" ]]; then
-    PORT=$((RANDOM % 40000 + 20000))
+    PORT=443
+elif [[ "$PORT" == "r" ]]; then
+    PORT=$(shuf -i 20000-60000 -n 1)
 fi
 
 ARCH=$(uname -m)
 
-if [[ "$ARCH" == "x86_64" ]]; then
-    SB_ARCH="amd64"
-elif [[ "$ARCH" == "aarch64" ]]; then
-    SB_ARCH="arm64"
-else
-    echo "不支持的架构"
-    exit 1
-fi
+case "$ARCH" in
+    x86_64)
+        SB_ARCH="amd64"
+        ;;
+    aarch64|arm64)
+        SB_ARCH="arm64"
+        ;;
+    *)
+        echo "不支持的架构: $ARCH"
+        exit 1
+        ;;
+esac
 
 echo
 echo "安装依赖..."
 
 apt update
-apt install -y curl wget tar jq openssl
+
+apt install -y \
+curl \
+wget \
+tar \
+jq \
+openssl \
+ca-certificates
 
 echo
-echo "开启BBR优化..."
+echo "开启 BBR 优化..."
 
 cat > /etc/sysctl.d/99-custom.conf <<EOF
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
-
 net.ipv4.tcp_fastopen=3
 net.ipv4.tcp_mtu_probing=1
 
 net.core.rmem_max=67108864
 net.core.wmem_max=67108864
+
+net.ipv4.tcp_rmem=4096 87380 67108864
+net.ipv4.tcp_wmem=4096 65536 67108864
 EOF
 
-sysctl --system
+sysctl --system >/dev/null 2>&1
 
 echo
 echo "下载 sing-box..."
@@ -57,8 +75,10 @@ cd /tmp
 
 LATEST=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r .tag_name)
 
-wget -O sing-box.tar.gz \
+wget -q -O sing-box.tar.gz \
 https://github.com/SagerNet/sing-box/releases/download/${LATEST}/sing-box-${LATEST#v}-linux-${SB_ARCH}.tar.gz
+
+rm -rf sing-box-* 2>/dev/null || true
 
 tar -xzf sing-box.tar.gz
 
@@ -68,28 +88,28 @@ install -m 755 sing-box /usr/local/bin/sing-box
 
 mkdir -p /etc/sing-box
 
-IP=$(curl -s ipv4.ip.sb)
-
 PASSWORD=$(openssl rand -hex 16)
 
 SNI="www.cloudflare.com"
 
+IP=$(curl -s https://ipv4.ip.sb)
+
 echo
 echo "生成 TLS 证书..."
 
-openssl req -x509 -nodes -newkey rsa:2048 \
+openssl req -x509 -nodes -days 3650 \
+-newkey rsa:2048 \
 -keyout /etc/sing-box/server.key \
 -out /etc/sing-box/server.crt \
--days 3650 \
--subj "/CN=${SNI}"
+-subj "/CN=${SNI}" >/dev/null 2>&1
 
 echo
-echo "生成配置..."
+echo "写入配置..."
 
 cat > /etc/sing-box/config.json <<EOF
 {
   "log": {
-    "level": "warn"
+    "level": "info"
   },
 
   "inbounds": [
@@ -100,6 +120,7 @@ cat > /etc/sing-box/config.json <<EOF
 
       "users": [
         {
+          "name": "user",
           "password": "${PASSWORD}"
         }
       ],
@@ -130,7 +151,7 @@ echo "创建 systemd 服务..."
 
 cat > /etc/systemd/system/sing-box.service <<EOF
 [Unit]
-Description=sing-box
+Description=sing-box service
 After=network.target
 
 [Service]
@@ -144,29 +165,49 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable sing-box
+
+systemctl enable sing-box >/dev/null 2>&1
+
 systemctl restart sing-box
 
+sleep 2
+
 if command -v ufw >/dev/null 2>&1; then
-    ufw allow ${PORT}/tcp
+    ufw allow ${PORT}/tcp >/dev/null 2>&1 || true
 fi
 
 NODE_LINK="anytls://${PASSWORD}@${IP}:${PORT}?security=tls&insecure=1&sni=${SNI}#AnyTLS"
 
+clear
+
+echo "==========================================="
+echo "             安装完成"
+echo "==========================================="
+
 echo
-echo "======================================"
-echo " 安装完成"
-echo "======================================"
+echo "IP: ${IP}"
+
+echo "端口: ${PORT}"
+
+echo "密码: ${PASSWORD}"
 
 echo
 echo "节点链接："
+
 echo
+
 echo "${NODE_LINK}"
 
 echo
-echo "BBR状态："
+echo "==========================================="
+echo "BBR 状态："
+echo "==========================================="
+
 sysctl net.ipv4.tcp_congestion_control
 
 echo
+echo "==========================================="
 echo "服务状态："
-systemctl status sing-box --no-pager
+echo "==========================================="
+
+systemctl --no-pager --full status sing-box | head -20
