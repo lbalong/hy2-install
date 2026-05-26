@@ -3,7 +3,7 @@
 set -e
 
 echo "======================================"
-echo " AnyTLS 一键安装脚本"
+echo " AnyTLS 高性能一键脚本"
 echo "======================================"
 
 if [[ $EUID -ne 0 ]]; then
@@ -11,7 +11,11 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-PORT=443
+read -p "请输入端口 (默认443，回车随机): " PORT
+
+if [[ -z "$PORT" ]]; then
+    PORT=$((RANDOM % 40000 + 20000))
+fi
 
 ARCH=$(uname -m)
 
@@ -31,20 +35,17 @@ apt update
 apt install -y curl wget tar jq openssl
 
 echo
-echo "开启 BBR 与网络优化..."
+echo "开启BBR优化..."
 
 cat > /etc/sysctl.d/99-custom.conf <<EOF
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 
-net.core.rmem_max=67108864
-net.core.wmem_max=67108864
-
-net.ipv4.tcp_rmem=4096 87380 67108864
-net.ipv4.tcp_wmem=4096 65536 67108864
-
 net.ipv4.tcp_fastopen=3
 net.ipv4.tcp_mtu_probing=1
+
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
 EOF
 
 sysctl --system
@@ -74,6 +75,15 @@ PASSWORD=$(openssl rand -hex 16)
 SNI="www.cloudflare.com"
 
 echo
+echo "生成 TLS 证书..."
+
+openssl req -x509 -nodes -newkey rsa:2048 \
+-keyout /etc/sing-box/server.key \
+-out /etc/sing-box/server.crt \
+-days 3650 \
+-subj "/CN=${SNI}"
+
+echo
 echo "生成配置..."
 
 cat > /etc/sing-box/config.json <<EOF
@@ -81,21 +91,32 @@ cat > /etc/sing-box/config.json <<EOF
   "log": {
     "level": "warn"
   },
+
   "inbounds": [
     {
       "type": "anytls",
       "listen": "::",
       "listen_port": ${PORT},
+
       "users": [
         {
           "password": "${PASSWORD}"
         }
       ],
+
       "padding_scheme": [
         "stop=8"
-      ]
+      ],
+
+      "tls": {
+        "enabled": true,
+        "server_name": "${SNI}",
+        "certificate_path": "/etc/sing-box/server.crt",
+        "key_path": "/etc/sing-box/server.key"
+      }
     }
   ],
+
   "outbounds": [
     {
       "type": "direct"
@@ -116,6 +137,7 @@ After=network.target
 ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
 Restart=always
 RestartSec=3
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
@@ -129,7 +151,7 @@ if command -v ufw >/dev/null 2>&1; then
     ufw allow ${PORT}/tcp
 fi
 
-NODE_LINK="anytls://${PASSWORD}@${IP}:${PORT}?security=tls&sni=${SNI}#AnyTLS"
+NODE_LINK="anytls://${PASSWORD}@${IP}:${PORT}?security=tls&insecure=1&sni=${SNI}#AnyTLS"
 
 echo
 echo "======================================"
@@ -142,4 +164,9 @@ echo
 echo "${NODE_LINK}"
 
 echo
-echo "复制上面的链接导入客户端即可"
+echo "BBR状态："
+sysctl net.ipv4.tcp_congestion_control
+
+echo
+echo "服务状态："
+systemctl status sing-box --no-pager
