@@ -26,7 +26,7 @@ echo " 4. 彻底卸载节点服务"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
-# 部署专属快捷查询命令 sd (双节点靠拢紧挨，方便一键全选批量复制导入)
+# 部署专属快捷查询命令 sd (终极订正：把 fi 稳稳送进 echo 里面，封死断轨隐患)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
@@ -39,12 +39,12 @@ deploy_shortcut() {
     echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@104.16.0.1:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
-    fi
+    echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
 }
 
 if [ "$CHOICE" -eq 1 ]; then
-    echo "正在优化内核网络缓冲区，榨干千兆 TCP 流速..."
+    echo "正在优化内核 network 缓冲区，榨干千兆 TCP 流速..."
     echo "net.core.default_qdisc = fq" > /etc/sysctl.d/99-cf-vless-bbr.conf
     echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.d/99-cf-vless-bbr.conf
     echo "net.core.rmem_max = 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
@@ -119,7 +119,7 @@ if [ "$CHOICE" -eq 1 ]; then
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key
 
-    # 🌟 核心修复：用标准的 domain_suffix 彻底平替旧版 geosite 字段，完美封死任何内核闪退隐患
+    # 封入标准的 domain_suffix 路由，确保主服务 100% 畅通不闪退
     SB_CONFIG="/etc/sing-box/config.json"
     echo '{' > "$SB_CONFIG"
     echo '  "log": { "level": "info" },' >> "$SB_CONFIG"
@@ -188,7 +188,7 @@ elif [ "$CHOICE" -eq 2 ]; then
     WARP_CHECK=$(curl -s4 --socks5 127.0.0.1:40000 https://ifconfig.me || echo "failed")
     if [ "$WARP_CHECK" != "failed" ] && [ -n "$WARP_CHECK" ]; then
         echo "=========================================================="
-        echo " ✅ WARP 满血挂载成功！您的 VPS 已经成功戴上全新出海面具"
+        echo " ✅ WARP 满血挂挂载成功！您的 VPS 已经成功戴上全新出海面具"
         echo " 🌍 WARP 清洁出口 IP: $WARP_CHECK"
         echo " 🎬 Sing-Box 内部已自动接通 40000 端口，Netflix 非自制剧已解锁！"
         echo "=========================================================="
@@ -205,8 +205,4 @@ elif [ "$CHOICE" -eq 4 ]; then
     systemctl disable sing-box 2>/dev/null || true
     (warp-cli --accept-tos disconnect && warp-cli --accept-tos registration delete) 2>/dev/null || true
     apt-get remove cloudflare-warp -y 2>/dev/null || true
-    rm -rf /etc/cf_vless /etc/sing-box /usr/local/bin/sd /root/cert /etc/apt/sources.list.d/cloudflare-client.list
-    echo " 卸载清洗完成！"
-else
-    exit 1
-fi
+    rm -rf /etc/cf_vless /etc/sing-
