@@ -25,7 +25,7 @@ echo " 4. 彻底卸载节点服务"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
-# 部署专属快捷查询命令 sd (智能对账升级：不再死锁固定IP，自动对齐最新优选 IP 变量)
+# 部署专属快捷查询命令 sd (智能对账：不带任何反斜杠，完美产出可直接吸入的合规链接)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
@@ -33,18 +33,18 @@ deploy_shortcut() {
     echo '    source "$CF_CONF"' >> /usr/local/bin/sd
     echo '    PREF_IP="${LAST_PREF_IP:-104.16.0.1}"' >> /usr/local/bin/sd
     echo '    clear' >> /usr/local/bin/sd
-    echo "    echo \"===================================================\"" >> /usr/local/bin/sd
-    echo "    echo \" 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）\"" >> /usr/local/bin/sd
-    echo "    echo \"===================================================\"" >> /usr/local/bin/sd
+    echo '    echo "=========================================================="' >> /usr/local/bin/sd
+    echo '    echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"' >> /usr/local/bin/sd
+    echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Domain-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@$PREF_IP:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
-    echo "    echo \"===================================================\"" >> /usr/local/bin/sd
+    echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
 }
 
 if [ "$CHOICE" -eq 1 ]; then
-    # 🌟 速度压榨核心：强行注入 TCP Fast Open (内核级零流失握手)
+    # 速度压榨核心：下发 TCP Fast Open (内核级零流失握手) 与超频缓冲区
     echo "正在超频优化系统网络层，激活 BBRv2 级别缓冲区与 TCP Fast Open..."
     echo "net.core.default_qdisc = fq" > /etc/sysctl.d/99-cf-vless-bbr.conf
     echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.d/99-cf-vless-bbr.conf
@@ -192,7 +192,7 @@ if [ "$CHOICE" -eq 1 ]; then
     clear
     /usr/local/bin/sd
 
-# 🌟 核心升级点：四大金刚不坏大动脉 IP 直接入驻友情提示
+# 🌟 核心升级点：彻底切除 172 坏账段，满血满员补齐 6 个大厂殿堂级保底 IP
 elif [ "$CHOICE" -eq 2 ]; then
     if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
         echo " ❌ 错误：检测到您尚未安装节点，请先选择 [1] 安装节点后再来优选 IP！"
@@ -201,11 +201,13 @@ elif [ "$CHOICE" -eq 2 ]; then
     echo "=========================================================="
     echo " 🎯 Cloudflare 自定义优选 IP 管理控制台"
     echo "=========================================================="
-    echo " 💡 哥们儿为你甄选的 4 个全网络通杀、最稳核心保底 IP："
-    echo "    👉 104.17.0.1    (大厂一号备用跑道，极速纯净)"
-    echo "    👉 104.19.0.1    (大厂二号备用跑道，抗封锁极强)"
-    echo "    👉 172.67.1.1    (高级 Anycast 高防路由，回国分流优化)"
-    echo "    👉 162.159.0.1   (全球顶级公共服务节点，稳如泰山)"
+    echo " 💡 哥们儿为你精选的 6 个大厂殿堂级、永不销户骨干网保底 IP："
+    echo "    👉 104.17.0.1    (大厂 1 号备用跑道，极速纯净)"
+    echo "    👉 104.18.0.1    (大厂 2 号跑道，全网兼容极佳)"
+    echo "    👉 104.19.0.1    (大厂 3 号跑道，抗封锁高阻断放行)"
+    echo "    👉 104.20.0.1    (大厂 4 号跑道，针对亚太优化路由)"
+    echo "    👉 104.22.0.1    (大厂 5 号跑道，高负载弹性流速跑道)"
+    echo "    👉 162.159.0.1   (全球顶级边缘公共服务节点，稳如磐石)"
     echo "----------------------------------------------------------"
     read -p " 请输入上述保底 IP 或你自己的 IP (直接回车保持当前 [$CURRENT_PREF_IP]): " NEW_PREF
     NEW_PREF=${NEW_PREF:-$CURRENT_PREF_IP}
