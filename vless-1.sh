@@ -5,7 +5,7 @@ clear
 echo "=========================================================="
 echo "    Cloudflare 避风港：Sing-Box VLESS-WS-TLS 满血完全体"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 智能双信道证书)"
+echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 智能多轨证书)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 3. 彻底卸载节点服务"
 echo "=========================================================="
@@ -121,7 +121,7 @@ if [ "$CHOICE" -eq 1 ]; then
 
     if [ ! -f "/root/.acme.sh/acme.sh" ]; then curl https://get.acme.sh | sh || true; fi
     
-    # 🌟 智能证书对账：暂时解除 set -e 限制，硬核接管报错，不给脚本任何闪退借口
+    # 智能证书对账逻辑：暂时解除 set -e 限制，硬核接管报错
     set +e
     CERT_OK=0
 
@@ -149,12 +149,11 @@ if [ "$CHOICE" -eq 1 ]; then
 
     if [ "$CERT_OK" -ne 1 ]; then
         echo " ❌ 错误：所有证书信道（含备用信道）签发均告失败！"
-        echo " 请务必确认：1. Cloudflare 后台小云朵已【暂时关闭（变灰）】。 2. 80 端口未被其他服务占用。"
         exit 1
     fi
 
-    # 统一安装下发证书
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force || true
+    # 🌟 终极订正：彻底切除之前遗留在外、导致二次强制申请报错的“代码阑尾”
+    # 只保留这一行纯净安全的证书分发安装即可
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key || true
 
     SB_CONFIG="/etc/sing-box/config.json"
