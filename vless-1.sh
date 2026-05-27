@@ -39,7 +39,7 @@ deploy_shortcut() {
     echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@104.16.0.1:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
-    echo 'fi' >> /usr/local/bin/sd
+    fi
     chmod +x /usr/local/bin/sd
 }
 
@@ -60,7 +60,7 @@ if [ "$CHOICE" -eq 1 ]; then
     systemctl stop sing-box 2>/dev/null || true
     systemctl stop xray 2>/dev/null || true
 
-    # 智能历史记忆恢复
+    # 智能历史记忆恢复：域名
     if [ -n "$LAST_DOMAIN" ]; then
         read -p " 请输入域名 (直接回车复用历史域名 [$LAST_DOMAIN]): " DOMAIN_INPUT
         DOMAIN=${DOMAIN_INPUT:-$LAST_DOMAIN}
@@ -106,7 +106,7 @@ if [ "$CHOICE" -eq 1 ]; then
 
     ENCODED_PATH=$(printf '%s' "$WSPATH" | sed 's/\//%2F/g')
 
-    # 将关键的持久化记忆锁死
+    # 持久化记忆锁死
     echo "LAST_DOMAIN=\"$DOMAIN\"" > "$CONFIG_FILE"
     echo "LAST_WSPATH=\"$WSPATH\"" >> "$CONFIG_FILE"
     echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
@@ -119,7 +119,7 @@ if [ "$CHOICE" -eq 1 ]; then
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key
 
-    # 🌟 核心升级：默认出站直接封入 warp-out 分流跑道与流媒体专属分流规则
+    # 🌟 核心修复：用标准的 domain_suffix 彻底平替旧版 geosite 字段，完美封死任何内核闪退隐患
     SB_CONFIG="/etc/sing-box/config.json"
     echo '{' > "$SB_CONFIG"
     echo '  "log": { "level": "info" },' >> "$SB_CONFIG"
@@ -149,7 +149,12 @@ if [ "$CHOICE" -eq 1 ]; then
     echo '  ],' >> "$SB_CONFIG"
     echo '  "route": {' >> "$SB_CONFIG"
     echo '    "rules": [' >> "$SB_CONFIG"
-    echo '      { "geosite": [ "netflix", "disney" ], "outbound": "warp-out" }' >> "$SB_CONFIG"
+    echo '      {' >> "$SB_CONFIG"
+    echo '        "domain_suffix": [' >> "$SB_CONFIG"
+    echo '          "netflix.com", "netflix.net", "nflximg.net", "nflxvideo.net", "nflxext.com", "nflxso.net", "disneyplus.com", "fast.com"' >> "$SB_CONFIG"
+    echo '        ],' >> "$SB_CONFIG"
+    echo '        "outbound": "warp-out"' >> "$SB_CONFIG"
+    echo '      }' >> "$SB_CONFIG"
     echo '    ]' >> "$SB_CONFIG"
     echo '  }' >> "$SB_CONFIG"
     echo '}' >> "$SB_CONFIG"
@@ -162,19 +167,16 @@ if [ "$CHOICE" -eq 1 ]; then
     /usr/local/bin/sd
 
 elif [ "$CHOICE" -eq 2 ]; then
-    # 🌟 特色功能二：独立挂载 Cloudflare WARP 官方清洁出站网闸
     echo "=========================================================="
     echo " 🔄 正在为 VPS 部署 Cloudflare WARP 官方原生出站组件..."
     echo "=========================================================="
     apt update -y && apt install -y gpg lsb-release curl
 
-    # 安全导入官方密钥与源账本
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
     echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflare-client.list
     apt update -y
     apt install cloudflare-warp -y
 
-    echo "正在向 Cloudflare 申请注册全新清洁出海账户..."
     warp-cli --accept-tos registration new || true
     warp-cli --accept-tos mode proxy
     warp-cli --accept-tos proxy port 40000
@@ -183,7 +185,6 @@ elif [ "$CHOICE" -eq 2 ]; then
     echo "正在等待 WARP 本地网闸握手对账 (5秒)..."
     sleep 5
 
-    # 验证本地 Socks5 连通状态
     WARP_CHECK=$(curl -s4 --socks5 127.0.0.1:40000 https://ifconfig.me || echo "failed")
     if [ "$WARP_CHECK" != "failed" ] && [ -n "$WARP_CHECK" ]; then
         echo "=========================================================="
