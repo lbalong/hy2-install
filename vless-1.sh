@@ -25,7 +25,7 @@ echo " 4. 彻底卸载节点服务"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
-# 部署专属快捷查询命令 sd (智能对账升级：不再死锁固定IP，自动对齐最新优选 IP 变量)
+# 部署专属快捷查询命令 sd (核心修复：彻底拔除错误的反斜杠，让 $PREF_IP 标准输出真实 IP)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
@@ -37,7 +37,7 @@ deploy_shortcut() {
     echo '    echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Domain-$LAST_PORT"' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@\$PREF_IP:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@$PREF_IP:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
@@ -189,7 +189,6 @@ if [ "$CHOICE" -eq 1 ]; then
     clear
     /usr/local/bin/sd
 
-# 🌟 特色全新扩容：自定义优选 IP 控制网闸段
 elif [ "$CHOICE" -eq 2 ]; then
     if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
         echo " ❌ 错误：检测到您尚未安装节点，请先选择 [1] 安装节点后再来优选 IP！"
@@ -204,10 +203,10 @@ elif [ "$CHOICE" -eq 2 ]; then
     read -p " 请输入新的优选 IP (直接回车保持当前 [$CURRENT_PREF_IP]): " NEW_PREF
     NEW_PREF=${NEW_PREF:-$CURRENT_PREF_IP}
     
-    # 重新锁死持久化账本，只无损重签更新优选IP变量，其余记忆完好无损
+    # 核心修复：精准恢复 $LAST_PORT / $LAST_UUID 资产，封死换血导致的配置真空
     echo "LAST_DOMAIN=\"$LAST_DOMAIN\"" > "$CONFIG_FILE"
     echo "LAST_WSPATH=\"$LAST_WSPATH\"" >> "$CONFIG_FILE"
-    echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
+    echo "LAST_PORT=\"$LAST_PORT\"" >> "$CONFIG_FILE"
     echo "LAST_UUID=\"$LAST_UUID\"" >> "$CONFIG_FILE"
     echo "LAST_ENCODED_PATH=\"$LAST_ENCODED_PATH\"" >> "$CONFIG_FILE"
     echo "LAST_GEO=\"$LAST_GEO\"" >> "$CONFIG_FILE"
