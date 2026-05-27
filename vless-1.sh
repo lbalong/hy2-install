@@ -188,7 +188,7 @@ elif [ "$CHOICE" -eq 2 ]; then
     WARP_CHECK=$(curl -s4 --socks5 127.0.0.1:40000 https://ifconfig.me || echo "failed")
     if [ "$WARP_CHECK" != "failed" ] && [ -n "$WARP_CHECK" ]; then
         echo "=========================================================="
-        echo " ✅ WARP 满血挂挂载成功！您的 VPS 已经成功戴上全新出海面具"
+        echo " ✅ WARP 满血挂载成功！您的 VPS 已经成功戴上全新出海面具"
         echo " 🌍 WARP 清洁出口 IP: $WARP_CHECK"
         echo " 🎬 Sing-Box 内部已自动接通 40000 端口，Netflix 非自制剧已解锁！"
         echo "=========================================================="
@@ -205,4 +205,8 @@ elif [ "$CHOICE" -eq 4 ]; then
     systemctl disable sing-box 2>/dev/null || true
     (warp-cli --accept-tos disconnect && warp-cli --accept-tos registration delete) 2>/dev/null || true
     apt-get remove cloudflare-warp -y 2>/dev/null || true
-    rm -rf /etc/cf_vless /etc/sing-
+    rm -rf /etc/cf_vless /etc/sing-box /usr/local/bin/sd /root/cert /etc/apt/sources.list.d/cloudflare-client.list
+    echo " 卸载清洗完成！"
+else
+    exit 1
+fi
