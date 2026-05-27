@@ -2,16 +2,7 @@
 set -e
 clear
 
-echo "=========================================================="
-echo "    Cloudflare 避风港：Sing-Box VLESS-WS-TLS 满血完全体"
-echo "=========================================================="
-echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 智能多轨证书)"
-echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
-echo " 3. 彻底卸载节点服务"
-echo "=========================================================="
-read -p "请选择操作 [1-3]: " CHOICE
-
-# 铁律第一步：物理创建核心账本目录
+# 铁律第一步：物理创建核心账本目录，确保所有账本读写绝不踩空
 mkdir -p /etc/cf_vless
 mkdir -p /root/cert
 mkdir -p /etc/sing-box
@@ -22,19 +13,31 @@ if [ -f "$CONFIG_FILE" ]; then source "$CONFIG_FILE"; fi
 
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "6a82e704-9ac8-4fb8-bef1-6c9d7d7e390a")
+CURRENT_PREF_IP="${LAST_PREF_IP:-104.16.0.1}"
 
-# 部署专属快捷查询命令 sd 
+echo "=========================================================="
+echo "    Cloudflare 避风港：Sing-Box VLESS-WS-TLS 满血完全体"
+echo "=========================================================="
+echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 智能多轨证书)"
+echo " 2. 更换/管理自定义优选 IP (当前: $CURRENT_PREF_IP)"
+echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
+echo " 4. 彻底卸载节点服务"
+echo "=========================================================="
+read -p "请选择操作 [1-4]: " CHOICE
+
+# 部署专属快捷查询命令 sd (智能对账升级：不再死锁固定IP，自动对齐最新优选 IP 变量)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
     echo 'if [ -f "$CF_CONF" ]; then' >> /usr/local/bin/sd
     echo '    source "$CF_CONF"' >> /usr/local/bin/sd
+    echo '    PREF_IP="${LAST_PREF_IP:-104.16.0.1}"' >> /usr/local/bin/sd
     echo '    clear' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo '    echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Domain-$LAST_PORT"' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@104.16.0.1:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@\$PREF_IP:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
@@ -116,12 +119,12 @@ if [ "$CHOICE" -eq 1 ]; then
     echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
     echo "LAST_ENCODED_PATH=\"$ENCODED_PATH\"" >> "$CONFIG_FILE"
     echo "LAST_GEO=\"$GEO_TAG\"" >> "$CONFIG_FILE"
+    echo "LAST_PREF_IP=\"$CURRENT_PREF_IP\"" >> "$CONFIG_FILE"
 
     bash <(curl -fsSL https://sing-box.app/deb-install.sh)
 
     if [ ! -f "/root/.acme.sh/acme.sh" ]; then curl https://get.acme.sh | sh || true; fi
     
-    # 智能证书对账逻辑：暂时解除 set -e 限制，硬核接管报错
     set +e
     CERT_OK=0
 
@@ -144,7 +147,6 @@ if [ "$CHOICE" -eq 1 ]; then
         fi
     fi
 
-    # 重新激活系统级严格保护
     set -e
 
     if [ "$CERT_OK" -ne 1 ]; then
@@ -152,8 +154,6 @@ if [ "$CHOICE" -eq 1 ]; then
         exit 1
     fi
 
-    # 🌟 终极订正：彻底切除之前遗留在外、导致二次强制申请报错的“代码阑尾”
-    # 只保留这一行纯净安全的证书分发安装即可
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key || true
 
     SB_CONFIG="/etc/sing-box/config.json"
@@ -189,9 +189,38 @@ if [ "$CHOICE" -eq 1 ]; then
     clear
     /usr/local/bin/sd
 
+# 🌟 特色全新扩容：自定义优选 IP 控制网闸段
 elif [ "$CHOICE" -eq 2 ]; then
-    if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo " 未找到节点配置！"; fi
+    if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
+        echo " ❌ 错误：检测到您尚未安装节点，请先选择 [1] 安装节点后再来优选 IP！"
+        exit 1
+    fi
+    echo "=========================================================="
+    echo " 🎯 Cloudflare 自定义优选 IP 管理控制台"
+    echo "=========================================================="
+    echo " 提示：您可以使用本地电脑的 CloudflareSpeedTest 工具测速，"
+    echo " 然后把延迟最低、速度最快的 IP 复制到下方粘贴。"
+    echo "----------------------------------------------------------"
+    read -p " 请输入新的优选 IP (直接回车保持当前 [$CURRENT_PREF_IP]): " NEW_PREF
+    NEW_PREF=${NEW_PREF:-$CURRENT_PREF_IP}
+    
+    # 重新锁死持久化账本，只无损重签更新优选IP变量，其余记忆完好无损
+    echo "LAST_DOMAIN=\"$LAST_DOMAIN\"" > "$CONFIG_FILE"
+    echo "LAST_WSPATH=\"$LAST_WSPATH\"" >> "$CONFIG_FILE"
+    echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
+    echo "LAST_UUID=\"$LAST_UUID\"" >> "$CONFIG_FILE"
+    echo "LAST_ENCODED_PATH=\"$LAST_ENCODED_PATH\"" >> "$CONFIG_FILE"
+    echo "LAST_GEO=\"$LAST_GEO\"" >> "$CONFIG_FILE"
+    echo "LAST_PREF_IP=\"$NEW_PREF\"" >> "$CONFIG_FILE"
+    
+    echo " ✅ 优选 IP 账目已成功变更！"
+    deploy_shortcut
+    clear
+    /usr/local/bin/sd
+
 elif [ "$CHOICE" -eq 3 ]; then
+    if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo " 未找到节点配置！"; fi
+elif [ "$CHOICE" -eq 4 ]; then
     systemctl stop sing-box 2>/dev/null || true
     rm -rf /etc/cf_vless /etc/sing-box /usr/local/bin/sd /root/cert
     echo " 卸载清洗完成！"
