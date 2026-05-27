@@ -5,7 +5,7 @@ clear
 echo "=========================================================="
 echo "    Cloudflare 避风港：Sing-Box VLESS-WS-TLS 满血完全体"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 地区自动识别)"
+echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 智能双信道证书)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 3. 彻底卸载节点服务"
 echo "=========================================================="
@@ -23,7 +23,7 @@ if [ -f "$CONFIG_FILE" ]; then source "$CONFIG_FILE"; fi
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "6a82e704-9ac8-4fb8-bef1-6c9d7d7e390a")
 
-# 部署专属快捷查询命令 sd (特色升级：节点名字后方自动咬合最新的 LAST_GEO 标签)
+# 部署专属快捷查询命令 sd 
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
@@ -53,7 +53,6 @@ if [ "$CHOICE" -eq 1 ]; then
     echo "正在拉取系统组件..."
     apt update -y && apt install -y curl wget socat cron unzip tar openssl ufw jq
 
-    # 🌟 特色新增：全自动识别小鸡物理地理位置归属
     echo "正在请求全球地理雷达检索 VPS 所属地区..."
     GEO_INFO=$(curl -s --max-time 5 http://ip-api.com/json/ || echo "")
     if [ -n "$GEO_INFO" ] && echo "$GEO_INFO" | grep -q '"status":"success"'; then
@@ -110,7 +109,7 @@ if [ "$CHOICE" -eq 1 ]; then
 
     ENCODED_PATH=$(printf '%s' "$WSPATH" | sed 's/\//%2F/g')
 
-    # 持久化记忆锁死 (追加写入最新抓到的 LAST_GEO 标签)
+    # 持久化记忆锁死
     echo "LAST_DOMAIN=\"$DOMAIN\"" > "$CONFIG_FILE"
     echo "LAST_WSPATH=\"$WSPATH\"" >> "$CONFIG_FILE"
     echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
@@ -121,8 +120,23 @@ if [ "$CHOICE" -eq 1 ]; then
     bash <(curl -fsSL https://sing-box.app/deb-install.sh)
 
     if [ ! -f "/root/.acme.sh/acme.sh" ]; then curl https://get.acme.sh | sh || true; fi
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force
-    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key
+    
+    # 🌟 智能证书对账逻辑：如果本地已经存在证书，且域名没换，直接跳过申请，防止薅秃官方接口
+    if [ -f "/root/cert/fullchain.cer" ] && [ -f "/root/cert/private.key" ] && [ "$DOMAIN" = "$LAST_DOMAIN" ]; then
+        echo " ✅ 检测到本地已有该域名的有效证书快照，自动开启智能复用，跳过申请流！"
+    else
+        echo " 正在请求证书服务..."
+        # 默认使用 Let's Encrypt 冲锋，如果触发 429 报错，捕获异常瞬间自动切换到 Buypass 备用节点
+        if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force; then
+            echo "=========================================================="
+            echo " ⚠️ Let's Encrypt 触发官方 7 天频次锁死限制！"
+            echo " 🔄 脚本正在全自动切入挪威 Buypass CA 备用绿色通道..."
+            echo "=========================================================="
+            ~ ~/.acme.sh/acme.sh --register-account -m admin@$DOMAIN --server buypass || true
+            ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force --server buypass
+        fi
+        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key
+    fi
 
     SB_CONFIG="/etc/sing-box/config.json"
     echo '{' > "$SB_CONFIG"
