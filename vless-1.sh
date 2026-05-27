@@ -5,7 +5,7 @@ clear
 echo "=========================================================="
 echo "    Cloudflare 避风港：Sing-Box VLESS-WS-TLS 满血完全体"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 域名精准对账)"
+echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 地区自动识别)"
 echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 3. 彻底卸载节点服务"
 echo "=========================================================="
@@ -23,6 +23,7 @@ if [ -f "$CONFIG_FILE" ]; then source "$CONFIG_FILE"; fi
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "6a82e704-9ac8-4fb8-bef1-6c9d7d7e390a")
 
+# 部署专属快捷查询命令 sd (特色升级：节点名字后方自动咬合最新的 LAST_GEO 标签)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
@@ -32,8 +33,8 @@ deploy_shortcut() {
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo '    echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Domain-$LAST_PORT"' >> /usr/local/bin/sd
-    echo '    echo "vless://$LAST_UUID@104.16.0.1:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Domain-$LAST_PORT"' >> /usr/local/bin/sd
+    echo '    echo "vless://$LAST_UUID@104.16.0.1:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "=========================================================="' >> /usr/local/bin/sd
     echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
@@ -49,7 +50,18 @@ if [ "$CHOICE" -eq 1 ]; then
     echo "net.ipv4.tcp_wmem = 4096 65536 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
     sysctl --system >/dev/null 2>&1
 
+    echo "正在拉取系统组件..."
     apt update -y && apt install -y curl wget socat cron unzip tar openssl ufw jq
+
+    # 🌟 特色新增：全自动识别小鸡物理地理位置归属
+    echo "正在请求全球地理雷达检索 VPS 所属地区..."
+    GEO_INFO=$(curl -s --max-time 5 http://ip-api.com/json/ || echo "")
+    if [ -n "$GEO_INFO" ] && echo "$GEO_INFO" | grep -q '"status":"success"'; then
+        GEO_TAG=$(echo "$GEO_INFO" | jq -r '.countryCode' 2>/dev/null || echo "Node")
+    else
+        GEO_TAG="Node"
+    fi
+    echo " ✅ 检索成功！当前小鸡物理机房判定地区为：[$GEO_TAG]"
 
     systemctl stop sing-box 2>/dev/null || true
     systemctl stop xray 2>/dev/null || true
@@ -98,11 +110,13 @@ if [ "$CHOICE" -eq 1 ]; then
 
     ENCODED_PATH=$(printf '%s' "$WSPATH" | sed 's/\//%2F/g')
 
+    # 持久化记忆锁死 (追加写入最新抓到的 LAST_GEO 标签)
     echo "LAST_DOMAIN=\"$DOMAIN\"" > "$CONFIG_FILE"
     echo "LAST_WSPATH=\"$WSPATH\"" >> "$CONFIG_FILE"
     echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
     echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
     echo "LAST_ENCODED_PATH=\"$ENCODED_PATH\"" >> "$CONFIG_FILE"
+    echo "LAST_GEO=\"$GEO_TAG\"" >> "$CONFIG_FILE"
 
     bash <(curl -fsSL https://sing-box.app/deb-install.sh)
 
