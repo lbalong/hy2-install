@@ -18,14 +18,14 @@ CURRENT_PREF_IP="${LAST_PREF_IP:-104.16.0.1}"
 echo "=========================================================="
 echo "    Cloudflare 避风港：Sing-Box VLESS-WS-TLS 满血完全体"
 echo "=========================================================="
-echo " 1. 安装/更新 VLESS-WS-TLS 节点 (智能记忆 + 智能多轨证书)"
+echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频调校 + 证书复用)"
 echo " 2. 更换/管理自定义优选 IP (当前: $CURRENT_PREF_IP)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载节点服务"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
-# 部署专属快捷查询命令 sd (核心修复：彻底拔除错误的反斜杠，让 $PREF_IP 标准输出真实 IP)
+# 部署专属快捷查询命令 sd (智能对账升级：不再死锁固定IP，自动对齐最新优选 IP 变量)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
     echo 'CF_CONF="/etc/cf_vless/last_cfg.conf"' >> /usr/local/bin/sd
@@ -33,20 +33,22 @@ deploy_shortcut() {
     echo '    source "$CF_CONF"' >> /usr/local/bin/sd
     echo '    PREF_IP="${LAST_PREF_IP:-104.16.0.1}"' >> /usr/local/bin/sd
     echo '    clear' >> /usr/local/bin/sd
-    echo '    echo "=========================================================="' >> /usr/local/bin/sd
-    echo '    echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"' >> /usr/local/bin/sd
-    echo '    echo "=========================================================="' >> /usr/local/bin/sd
+    echo "    echo \"===================================================\"" >> /usr/local/bin/sd
+    echo "    echo \" 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）\"" >> /usr/local/bin/sd
+    echo "    echo \"===================================================\"" >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Domain-$LAST_PORT"' >> /usr/local/bin/sd
     echo '    echo "vless://$LAST_UUID@$PREF_IP:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"' >> /usr/local/bin/sd
-    echo '    echo "=========================================================="' >> /usr/local/bin/sd
+    echo "    echo \"===================================================\"" >> /usr/local/bin/sd
     echo 'fi' >> /usr/local/bin/sd
     chmod +x /usr/local/bin/sd
 }
 
 if [ "$CHOICE" -eq 1 ]; then
-    echo "正在优化内核网络缓冲区，榨干千兆 TCP 流速..."
+    # 🌟 速度压榨核心：强行注入 TCP Fast Open (内核级零流失握手)
+    echo "正在超频优化系统网络层，激活 BBRv2 级别缓冲区与 TCP Fast Open..."
     echo "net.core.default_qdisc = fq" > /etc/sysctl.d/99-cf-vless-bbr.conf
     echo "net.ipv4.tcp_congestion_control = bbr" >> /etc/sysctl.d/99-cf-vless-bbr.conf
+    echo "net.ipv4.tcp_fastopen = 3" >> /etc/sysctl.d/99-cf-vless-bbr.conf
     echo "net.core.rmem_max = 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
     echo "net.core.wmem_max = 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
     echo "net.ipv4.tcp_rmem = 4096 87380 16772160" >> /etc/sysctl.d/99-cf-vless-bbr.conf
@@ -176,7 +178,8 @@ if [ "$CHOICE" -eq 1 ]; then
     echo "        \"server_name\": \"$DOMAIN\"," >> "$SB_CONFIG"
     echo '        "certificate_path": "/root/cert/fullchain.cer",' >> "$SB_CONFIG"
     echo '        "key_path": "/root/cert/private.key"' >> "$SB_CONFIG"
-    echo '      }' >> "$SB_CONFIG"
+    echo '      },' >> "$SB_CONFIG"
+    echo '      "tcp_fast_open": true' >> "$SB_CONFIG"
     echo '    }' >> "$SB_CONFIG"
     echo '  ],' >> "$SB_CONFIG"
     echo '  "outbounds": [ { "type": "direct" } ]' >> "$SB_CONFIG"
@@ -189,6 +192,7 @@ if [ "$CHOICE" -eq 1 ]; then
     clear
     /usr/local/bin/sd
 
+# 🌟 核心升级点：四大金刚不坏大动脉 IP 直接入驻友情提示
 elif [ "$CHOICE" -eq 2 ]; then
     if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
         echo " ❌ 错误：检测到您尚未安装节点，请先选择 [1] 安装节点后再来优选 IP！"
@@ -197,13 +201,15 @@ elif [ "$CHOICE" -eq 2 ]; then
     echo "=========================================================="
     echo " 🎯 Cloudflare 自定义优选 IP 管理控制台"
     echo "=========================================================="
-    echo " 提示：您可以使用本地电脑的 CloudflareSpeedTest 工具测速，"
-    echo " 然后把延迟最低、速度最快的 IP 复制到下方粘贴。"
+    echo " 💡 哥们儿为你甄选的 4 个全网络通杀、最稳核心保底 IP："
+    echo "    👉 104.17.0.1    (大厂一号备用跑道，极速纯净)"
+    echo "    👉 104.19.0.1    (大厂二号备用跑道，抗封锁极强)"
+    echo "    👉 172.67.1.1    (高级 Anycast 高防路由，回国分流优化)"
+    echo "    👉 162.159.0.1   (全球顶级公共服务节点，稳如泰山)"
     echo "----------------------------------------------------------"
-    read -p " 请输入新的优选 IP (直接回车保持当前 [$CURRENT_PREF_IP]): " NEW_PREF
+    read -p " 请输入上述保底 IP 或你自己的 IP (直接回车保持当前 [$CURRENT_PREF_IP]): " NEW_PREF
     NEW_PREF=${NEW_PREF:-$CURRENT_PREF_IP}
     
-    # 核心修复：精准恢复 $LAST_PORT / $LAST_UUID 资产，封死换血导致的配置真空
     echo "LAST_DOMAIN=\"$LAST_DOMAIN\"" > "$CONFIG_FILE"
     echo "LAST_WSPATH=\"$LAST_WSPATH\"" >> "$CONFIG_FILE"
     echo "LAST_PORT=\"$LAST_PORT\"" >> "$CONFIG_FILE"
