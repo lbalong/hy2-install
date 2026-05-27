@@ -121,22 +121,41 @@ if [ "$CHOICE" -eq 1 ]; then
 
     if [ ! -f "/root/.acme.sh/acme.sh" ]; then curl https://get.acme.sh | sh || true; fi
     
-    # 🌟 智能证书对账逻辑：如果本地已经存在证书，且域名没换，直接跳过申请，防止薅秃官方接口
+    # 🌟 智能证书对账：暂时解除 set -e 限制，硬核接管报错，不给脚本任何闪退借口
+    set +e
+    CERT_OK=0
+
     if [ -f "/root/cert/fullchain.cer" ] && [ -f "/root/cert/private.key" ] && [ "$DOMAIN" = "$LAST_DOMAIN" ]; then
         echo " ✅ 检测到本地已有该域名的有效证书快照，自动开启智能复用，跳过申请流！"
+        CERT_OK=1
     else
-        echo " 正在请求证书服务..."
-        # 默认使用 Let's Encrypt 冲锋，如果触发 429 报错，捕获异常瞬间自动切换到 Buypass 备用节点
-        if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force; then
+        echo " 正在首选 Let's Encrypt 签发正规证书..."
+        ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force
+        if [ $? -eq 0 ]; then
+            CERT_OK=1
+        else
             echo "=========================================================="
-            echo " ⚠️ Let's Encrypt 触发官方 7 天频次锁死限制！"
+            echo " ⚠️ Let's Encrypt 触发官方频次锁死限制！"
             echo " 🔄 脚本正在全自动切入挪威 Buypass CA 备用绿色通道..."
             echo "=========================================================="
-            ~ ~/.acme.sh/acme.sh --register-account -m admin@$DOMAIN --server buypass || true
+            ~/.acme.sh/acme.sh --register-account -m admin@$DOMAIN --server buypass || true
             ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force --server buypass
+            if [ $? -eq 0 ]; then CERT_OK=1; fi
         fi
-        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key
     fi
+
+    # 重新激活系统级严格保护
+    set -e
+
+    if [ "$CERT_OK" -ne 1 ]; then
+        echo " ❌ 错误：所有证书信道（含备用信道）签发均告失败！"
+        echo " 请务必确认：1. Cloudflare 后台小云朵已【暂时关闭（变灰）】。 2. 80 端口未被其他服务占用。"
+        exit 1
+    fi
+
+    # 统一安装下发证书
+    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force || true
+    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --ecc --fullchain-file /root/cert/fullchain.cer --key-file /root/cert/private.key || true
 
     SB_CONFIG="/etc/sing-box/config.json"
     echo '{' > "$SB_CONFIG"
@@ -149,7 +168,7 @@ if [ "$CHOICE" -eq 1 ]; then
     echo '      "users": [ { ' >> "$SB_CONFIG"
     echo "        \"uuid\": \"$UUID\"" >> "$SB_CONFIG"
     echo '      } ],' >> "$SB_CONFIG"
-    echo '      "transport": {' >> "$SB_CONFIG"
+    echo '      "transport": { ' >> "$SB_CONFIG"
     echo '        "type": "ws",' >> "$SB_CONFIG"
     echo "        \"path\": \"$WSPATH\"" >> "$SB_CONFIG"
     echo '      },' >> "$SB_CONFIG"
