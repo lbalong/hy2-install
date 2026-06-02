@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =================================================================
-# 脚本名称: Cloudflare 官方 WARP 奈飞全自动一键解锁脚本 (官方核心版)
+# 脚本名称: Cloudflare 官方 WARP 奈飞全自动一键解锁脚本 (2026官方新版语法)
 # =================================================================
 
 # 强制非交互模式
@@ -47,30 +47,29 @@ elif command -v yum >/dev/null 2>&1; then
     yum install cloudflare-warp -y -q > /dev/null 2>&1
 fi
 
-# 2. 强力重启并确保官方后台服务完全就绪
+# 2. 确保官方后台服务完全就绪
 echo -e "${YELLOW}[*] 正在拉起后台守护进程 (warp-svc)...${PLAIN}"
 systemctl daemon-reload
-systemctl stop warp-svc > /dev/null 2>&1
 systemctl enable --now warp-svc > /dev/null 2>&1
-sleep 4 # 给守护进程充足的启动时间
+sleep 4 
 
-# 3. 初始化官方账户并切入代理分流模式
+# 3. 针对新版语法初始化账户并切入代理模式
 echo -e "${YELLOW}[*] 正在向 Cloudflare 注册新账户...${PLAIN}"
-# 如果已经注册过会提示已注册，这里不屏蔽输出，让你看到真实反馈
-warp-cli --accept-tos registration register
+# 使用新版官方注册命令
+warp-cli --accept-tos registration new > /dev/null 2>&1
 
 # 强制设置模式与端口
 warp-cli --accept-tos mode proxy
 warp-cli --accept-tos proxy port 40000
-warp-cli --accept-tos connect
-sleep 5 # 等待连接建立
+warp-cli --accept-tos connect > /dev/null 2>&1
+sleep 5 
 
 echo "=================================================="
 echo -e "${YELLOW}🔍 开始循环筛选解锁奈飞非自制剧的 IP...${PLAIN}"
 echo "=================================================="
 
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-    # 通过官方指定的 40000 端口测试连接
+    # 通过指定的 40000 端口测试连接
     STATUS_CODE=$(curl -s -o /dev/null --socks5-hostname 127.0.0.1:40000 -w "%{http_code}" --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "https://www.netflix.com/title/${NETFLIX_ID}")
     
     if [ "$STATUS_CODE" -eq 200 ]; then
@@ -79,16 +78,17 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
         break
     else
         if [ "$STATUS_CODE" -eq 000 ]; then
-            echo -e "${RED[-] 第 ${ATTEMPT} 次尝试：官方连接未就绪 (HTTP 000)。正在尝试强制重连...${PLAIN}"
+            echo -e "${RED[-] 第 ${ATTEMPT} 次尝试：代理未完全就绪 (HTTP 000)。正在重试连接...${PLAIN}"
             warp-cli --accept-tos connect > /dev/null 2>&1
+            sleep 3
         else
-            echo -e "${RED[-] 第 ${ATTEMPT} 次尝试：只能看自制剧 (HTTP ${STATUS_CODE})。正在轮换 IP...${PLAIN}"
+            echo -e "${RED[-] 第 ${ATTEMPT} 次尝试：只能看自制剧 (HTTP ${STATUS_CODE})。正在刷新账户获取新 IP...${PLAIN}"
         fi
         
-        # 官方客户端刷 IP 的标准姿势：断开并重连
-        warp-cli --accept-tos disconnect > /dev/null 2>&1
+        # 新版官方最快最稳的刷 IP 骚操作：直接在本地注销并重新生成注册，强迫节点分配全新 IP 段
+        warp-cli --accept-tos registration delete > /dev/null 2>&1
         sleep 1
-        warp-cli --accept-tos connect > /dev/null 2>&1
+        warp-cli --accept-tos registration new > /dev/null 2>&1
         sleep 4
     fi
     ATTEMPT=$((ATTEMPT + 1))
@@ -103,6 +103,6 @@ if [ $SUCCESS -eq 1 ]; then
     echo -e "${GREEN}[出口公网 IP]:${PLAIN} $(echo $IP_INFO | jq -r .ip)"
     echo -e "${GREEN}[解锁区域]:${PLAIN} $(echo $IP_INFO | jq -r .country_iso)"
 else
-    echo -e "${RED}❌ 刷了 ${MAX_ATTEMPTS} 次仍未成功，请稍后重新运行此脚本。${PLAIN}"
+    echo -e "${RED}❌ 刷了 ${MAX_ATTEMPTS} 次仍未成功，当前节点池被拉黑严重，请稍后重新运行此脚本。${PLAIN}"
     exit 1
 fi
