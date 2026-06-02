@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =================================================================
-# 脚本名称: Cloudflare 官方 WARP 奈飞全自动一键解锁脚本 (终极修复版)
+# 脚本名称: Cloudflare 官方 WARP 奈飞全自动一键解锁脚本 (官方核心版)
 # =================================================================
 
 # 强制非交互模式
@@ -28,7 +28,7 @@ echo "=================================================="
 echo -e "${YELLOW}🚀 正在配置并安装 Cloudflare 官方 WARP 客户端...${PLAIN}"
 echo "=================================================="
 
-# 1. 自动安装官方源及所需的所有系统依赖
+# 1. 安装官方源及所需的所有系统依赖
 if command -v apt-get >/dev/null 2>&1; then
     apt-get update -y -qq
     apt-get install -y -qq curl jq wireguard-tools lsb-release gnupg gpg psmisc > /dev/null 2>&1
@@ -54,13 +54,16 @@ systemctl stop warp-svc > /dev/null 2>&1
 systemctl enable --now warp-svc > /dev/null 2>&1
 sleep 4 # 给守护进程充足的启动时间
 
-# 3. 核心修复：针对新版 warp-cli 强制要求接受服务条款、注册账户、切换模式
-echo -e "${YELLOW}[*] 正在初始化官方账户并切入代理分流模式...${PLAIN}"
-sudo -u warp warp-cli --accept-tos registration register > /dev/null 2>&1 || warp-cli --accept-tos registration register
+# 3. 初始化官方账户并切入代理分流模式
+echo -e "${YELLOW}[*] 正在向 Cloudflare 注册新账户...${PLAIN}"
+# 如果已经注册过会提示已注册，这里不屏蔽输出，让你看到真实反馈
+warp-cli --accept-tos registration register
+
+# 强制设置模式与端口
 warp-cli --accept-tos mode proxy
 warp-cli --accept-tos proxy port 40000
 warp-cli --accept-tos connect
-sleep 5 # 等待首次连接分配 IP
+sleep 5 # 等待连接建立
 
 echo "=================================================="
 echo -e "${YELLOW}🔍 开始循环筛选解锁奈飞非自制剧的 IP...${PLAIN}"
@@ -68,7 +71,7 @@ echo "=================================================="
 
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
     # 通过官方指定的 40000 端口测试连接
-    STATUS_CODE=$(curl -s -o /dev/null --socks5-hostname 127.0.0.1:40000 -w "%{http_code}" --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "https://www.netflix.com/title/${NETFLIX_ID}")
+    STATUS_CODE=$(curl -s -o /dev/null --socks5-hostname 127.0.0.1:40000 -w "%{http_code}" --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "https://www.netflix.com/title/${NETFLIX_ID}")
     
     if [ "$STATUS_CODE" -eq 200 ]; then
         echo -e "${GREEN}[+] 第 ${ATTEMPT} 次尝试：🎉 成功刷到解锁 IP！(HTTP 200)${PLAIN}"
@@ -82,7 +85,7 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
             echo -e "${RED[-] 第 ${ATTEMPT} 次尝试：只能看自制剧 (HTTP ${STATUS_CODE})。正在轮换 IP...${PLAIN}"
         fi
         
-        # 官方客户端最快捷的刷 IP 姿势：直接令其重置虚拟网络连接
+        # 官方客户端刷 IP 的标准姿势：断开并重连
         warp-cli --accept-tos disconnect > /dev/null 2>&1
         sleep 1
         warp-cli --accept-tos connect > /dev/null 2>&1
