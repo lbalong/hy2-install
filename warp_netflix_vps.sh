@@ -44,7 +44,8 @@ echo -e "${YELLOW}🔍 开始循环筛选解锁奈飞非自制剧的 IP...${PLAI
 echo "=================================================="
 
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-    STATUS_CODE=$(curl -s -o /dev/null --socks5-hostname 127.0.0.1:40000 -w "%{http_code}" --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "https://www.netflix.com/title/${NETFLIX_ID}")
+    # 彻底简化 User-Agent，避免一切符号断行导致的崩溃
+    STATUS_CODE=$(curl -s -o /dev/null --socks5-hostname 127.0.0.1:40000 -w "%{http_code}" -A "Mozilla/5.0" "https://www.netflix.com/title/${NETFLIX_ID}")
     
     if [ "$STATUS_CODE" -eq 200 ]; then
         echo -e "${GREEN}[+] 第 ${ATTEMPT} 次尝试：🎉 成功刷到解锁 IP！(HTTP 200)${PLAIN}"
