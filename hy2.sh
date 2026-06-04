@@ -9,7 +9,7 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (已移除慢速IPv4节点)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (最终毕业版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
@@ -19,6 +19,7 @@ echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
+IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
 
@@ -54,6 +55,11 @@ EOF_SYSCTL
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
+    if command -v ip6tables > /dev/null; then
+        ip6tables -F && ip6tables -X
+        ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
+    fi
+
     if command -v apt-get >/dev/null; then
       apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools
     elif command -v yum >/dev/null; then
@@ -67,12 +73,12 @@ deploy_shortcut() {
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo "📋 当前 VPS 已保存的节点链接汇总 (Hy2 vs TUIC)"
+    echo "📋 当前 VPS 已保存的节点链接汇总"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
 else
-    echo "❌ 未找到已保存的节点信息，请先使用脚本创建节点！"
+    echo "❌ 未找到已保存的节点信息！"
 fi
 EOF_SHOW
     chmod +x /usr/local/bin/sd
@@ -91,19 +97,23 @@ get_domain() {
     fi
 
     while true; do
-        read -p "👉 请输入您当前解析好的完整域名 (例如 us2.099889.xyz): " DOMAIN
+        read -p "👉 请输入您当前解析好的完整域名: " DOMAIN
         if [ -z "$DOMAIN" ]; then continue; fi
-        echo "🔄 正在请求多路公网 DNS 校验域名解析..."
-        local domain_ip=$(curl -s4 "https://1.1.1.1/dns-query?name=$DOMAIN" -H "accept: application/dns-json" | grep -oE '"data":"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"' | head -n 1 | awk -F'"' '{print $4}')
-        [ -z "$domain_ip" ] && domain_ip=$(getent ahosts "$DOMAIN" | awk '{print $1}' | head -n 1)
+        echo "🔄 正在校验域名解析..."
+        local domain_ip=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
+        local domain_ip6=$(getent ahosts "$DOMAIN" | grep -E '^[0-9a-fA-F:]+$' | head -n 1 | awk '{print $1}')
         
-        if [ "$domain_ip" = "$IP" ]; then
+        if [ "$domain_ip" = "$IP" ] || [ "$domain_ip6" = "$IP6" ]; then
             echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
-            echo "✅ 对账成功！域名 [$DOMAIN] 已精准绑定本机 IP ($IP)"
+            echo "✅ 校验通过！"
             break
         else
-            echo "❌ 校验失败：当前域名解析出的 IP 为 [$domain_ip]，与本机 IP [$IP] 不符！"
-            echo "=========================================="
+            echo "❌ 校验失败：解析 IP 与本机不符！"
+            read -p "👉 是否确认解析已生效，并强行继续？[y/N]: " FORCE
+            if [[ "$FORCE" =~ ^[Yy]$ ]]; then
+                echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
+                break
+            fi
         fi
     done
 }
@@ -112,27 +122,16 @@ get_port() {
     local proto=$1
     local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
     local cached_port=""
-    
-    if [ -f "$cache_file" ]; then
-        cached_port=$(cat "$cache_file")
-    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/config.yaml" ]; then
-        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/config.yaml | grep -oE '[0-9]+' | head -n 1)
-    elif [ "$proto" = "tuic" ] && [ -f "/etc/tuic/config.json" ]; then
-        cached_port=$(grep -oE '"server":\s*"[^"]+"' /etc/tuic/config.json | grep -oE '[0-9]+' | head -n 1)
-    fi
-    
+    if [ -f "$cache_file" ]; then cached_port=$(cat "$cache_file"); fi
     local default_p=$(shuf -i 10000-60000 -n 1)
     
     if [ -n "$cached_port" ]; then
-        read -p "📋 检测到历史缓存 ${proto} 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
+        read -p "📋 检测到历史 ${proto} 端口 [$cached_port]，是否复用？[Y/n]: " CONFIRM
         if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
-            echo "$cached_port" > "$cache_file"
-            echo "$cached_port"
-            return 0
+            echo "$cached_port"; return 0
         fi
     fi
-    
-    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
+    read -p "👉 请输入节点监听端口 (默认 $default_p): " INPUT_PORT
     local final_port="${INPUT_PORT:-$default_p}"
     echo "$final_port" > "$cache_file"
     echo "$final_port"
@@ -141,43 +140,21 @@ get_port() {
 sync_cert() {
     local target_dir=$1
     get_domain
-    
     if [ -f "/etc/tuic/server.crt" ] && [ "$target_dir" != "/etc/tuic" ]; then
-        echo "📥 检测到隔壁 TUIC 已持有正规证书，正在执行无缝复制复用..."
-        cp /etc/tuic/server.crt "$target_dir/server.crt"
-        cp /etc/tuic/server.key "$target_dir/server.key"
-        return 0
+        cp /etc/tuic/server.crt "$target_dir/server.crt" && cp /etc/tuic/server.key "$target_dir/server.key"; return 0
     elif [ -f "/etc/hysteria/server.crt" ] && [ "$target_dir" != "/etc/hysteria" ]; then
-        echo "📥 检测到隔壁 Hysteria 2 已持有正规证书，正在执行无缝复制复用..."
-        cp /etc/hysteria/server.crt "$target_dir/server.crt"
-        cp /etc/hysteria/server.key "$target_dir/server.key"
-        return 0
+        cp /etc/hysteria/server.crt "$target_dir/server.crt" && cp /etc/hysteria/server.key "$target_dir/server.key"; return 0
     fi
 
-    echo "🔄 正在向 Let's Encrypt 申请正式合规证书..."
     systemctl stop nginx apache2 2>/dev/null
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-    
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-    local issue_res=$?
     
-    if [ $issue_res -ne 0 ]; then
-        if [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
-            echo "📋 侦测到本地签发历史中已存有合法合规证书文件，判定为缓存复用通车！"
-            issue_res=0
-        fi
-    fi
-    
-    if [ $issue_res -eq 0 ]; then
-        local cert_dir="${DOMAIN}_ecc"
-        [ ! -d "/root/.acme.sh/$cert_dir" ] && cert_dir="$DOMAIN"
-        
+    if [ $? -eq 0 ] || [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
         ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
-        echo "✅ 正规域名证书下发/复用成功！"
     else
-        echo "❌ 证书签发彻底失败，请检查 80 端口是否被物理占用！"
-        exit 1
+        echo "❌ 证书签发失败！"; exit 1
     fi
 }
 
@@ -200,19 +177,19 @@ auth:
 EOF_HY2_YAML
 
         chown -R hysteria:hysteria /etc/hysteria
-        chmod 755 /etc/hysteria
-        chmod 644 /etc/hysteria/server.crt
-        chmod 600 /etc/hysteria/server.key
-
+        chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
         GEO_TAG=$(get_geo_tag)
-        HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
-        deploy_shortcut
+        
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        if [ -n "$IP6" ]; then
+            echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_专属IPv6_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        fi
 
+        deploy_shortcut
         clear
         /usr/local/bin/sd
         ;;
@@ -223,15 +200,14 @@ EOF_HY2_YAML
         mkdir -p /etc/tuic
         sync_cert "/etc/tuic"
         
-        echo "🚀 正在下载 TUIC v5 服务端核心..."
         TUIC_ARCH="x86_64-unknown-linux-gnu"
         [ "$(uname -m)" = "aarch64" ] && TUIC_ARCH="aarch64-unknown-linux-gnu"
-        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
+        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
         chmod +x /usr/local/bin/tuic-server
 
         cat << EOF_TUIC_JSON > /etc/tuic/config.json
 {
-  "server": "0.0.0.0:$PORT",
+  "server": "[::]:$PORT",
   "users": {
     "$UUID": "$PASSWORD"
   },
@@ -262,35 +238,32 @@ EOF_TUIC_SERVICE
         systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
         
         GEO_TAG=$(get_geo_tag)
-        TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$TUIC_LINK" >> /etc/hy2_tuic/saved_links.txt
-        deploy_shortcut
+        
+        echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        if [ -n "$IP6" ]; then
+            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_专属IPv6_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        fi
 
+        deploy_shortcut
         clear
         /usr/local/bin/sd
         ;;
 
     3)
-        if [ -f "/usr/local/bin/sd" ]; then
-            /usr/local/bin/sd
-        else
-            echo "❌ 未找到已保存的节点信息！"
-        fi
+        if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo "❌ 未找到已保存的节点信息！"; fi
         ;;
 
     4)
-        echo "🧹 正在强行剥离所有后台进程与残留环境..."
+        echo "🧹 正在清洗环境..."
         systemctl stop hysteria-server tuic 2>/dev/null
         systemctl disable hysteria-server tuic 2>/dev/null
         rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
         systemctl daemon-reload
         rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
         rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
-        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
+        echo "✅ VPS 环境已清洗！"
         ;;
-    *)
-        exit 1
-        ;;
+    *) exit 1 ;;
 esac
