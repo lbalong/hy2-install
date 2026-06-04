@@ -2,35 +2,43 @@
 
 # 检查是否为 Root 用户
 if [ "$EUID" -ne 0 ]; then
-  echo "错误：请使用 root 用户运行此脚本！"
+  echo "❌ 错误：请使用 root 用户运行此脚本！"
   exit 1
 fi
 
-# 铁律第一步：开局直接物理创建核心目录，确保所有账本读写绝不踩空
-mkdir -p /etc/sing-box
+# 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Sing-Box 官方原生规范：AnyTLS 满血超频脚本 (联动 sd)"
+echo " Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (双栈 IPv4+IPv6 版)"
 echo "=========================================================="
-echo " 1. 安装/更新 AnyTLS 节点 (16MB内核超频 + 智能证书复用)"
-echo " 2. 查看当前已建节点链接汇总 (快捷命令: sd)"
-echo " 3. 彻底卸载 AnyTLS 服务"
+echo " 1. 安装 Hysteria 2 (双栈支持 + 全盘扫描端口 + 证书智能复用)"
+echo " 2. 安装 TUIC v5    (双栈支持 + 全盘扫描端口 + 证书智能复用)"
+echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
+echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
-read -p "请选择操作 [1-3]: " CHOICE
+read -p "👉 请选择操作 [1-4]: " CHOICE
 
-# 提取公共核心变量
-IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
-PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+# 双栈网络环境探测
+echo "🔍 正在探测网络环境..."
+IP4=$(curl -sS4 https://api.ipify.org --connect-timeout 3 2>/dev/null || curl -sS4 https://ifconfig.me --connect-timeout 3 2>/dev/null)
+IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null || curl -sS6 https://ifconfig.co --connect-timeout 3 2>/dev/null)
 
-if [ -z "$IP" ] && [ "$CHOICE" -eq 1 ]; then
-  echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
+if [ -z "$IP4" ] && [ -z "$IP6" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
+  echo "❌ 错误：无法获取服务器公网 IPv4 或 IPv6 地址，请检查网络连接。"
   exit 1
 fi
 
-# 智能获取服务商与地理位置标签
+[ -n "$IP4" ] && echo "✅ 探测到本机 IPv4: $IP4"
+[ -n "$IP6" ] && echo "✅ 探测到本机 IPv6: $IP6"
+
+PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
+
+# 智能获取服务商与地理位置标签 (优先使用 IPv4 测地理位置，API 兼容性好)
 get_geo_tag() {
-    local geo_info=$(curl -s --max-time 3 http://ip-api.com/json/)
+    local test_ip=${IP4:-$IP6}
+    local geo_info=$(curl -s --max-time 3 "http://ip-api.com/json/$test_ip")
     if [ -n "$geo_info" ] && echo "$geo_info" | grep -q '"status":"success"'; then
         local isp=$(echo "$geo_info" | grep -oE '"isp":"[^"]+"' | cut -d'"' -f4 | awk '{print $1}')
         local country=$(echo "$geo_info" | grep -oE '"country":"[^"]+"' | cut -d'"' -f4 | tr -d ' ')
@@ -42,45 +50,45 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境清洗与 TCP/BBR 深度性能榨干 (16MB 满血超频版)
+# 核心环境与系统防火墙一键物理洗地 (支持双栈)
 init_env() {
-    echo "🚀 正在向内核物理注入 BBR + 16MB 满血网络超频补丁..."
-    cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-anytls-bbr.conf
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.core.rmem_max = 16772160
-net.core.wmem_max = 16772160
-net.ipv4.tcp_rmem = 4096 87380 16772160
-net.ipv4.tcp_wmem = 4096 65536 16772160
-net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_fastopen = 3
+    echo "⚙️ 正在优化内核 UDP 缓冲区..."
+    cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
+net.core.rmem_max=8388608
+net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "📦 正在清洗基础网络与解压依赖组件..."
-    if command -v apt-get >/dev/null; then
-      apt-get update -qq && apt-get install -y -qq curl wget tar openssl net-tools iptables
-    elif command -v yum >/dev/null; then
-      yum install -y -q curl wget tar openssl net-tools iptables
-    fi
-
-    echo "🔓 正在物理清理内部防火墙残留（全开接单状态）..."
+    echo "🛡️ 正在物理清洗内部防火墙残留（双栈全开接单状态）..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
+    
+    # 清洗 IPv4 规则
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
+    
+    # 清洗 IPv6 规则
+    if command -v ip6tables > /dev/null; then
+        ip6tables -F && ip6tables -X
+        ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
+    fi
+
+    if command -v apt-get >/dev/null; then
+      apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools
+    elif command -v yum >/dev/null; then
+      yum makecache && yum install -y curl openssl wget iptables socat crontabs net-tools
+    fi
 }
 
-# 部署/更新联动专属快捷查询命令 sd
+# 部署专属快捷查询命令 sd
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo "📋 当前 VPS 已保存的节点链接汇总 (Hy2 vs TUIC vs AnyTLS)"
+    echo " 📋 当前 VPS 已保存的节点链接汇总 (双栈通用版)"
+    echo "    (客户端将根据网络情况自动通过域名解析走 v4 或 v6)"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
@@ -91,155 +99,227 @@ EOF_SHOW
     chmod +x /usr/local/bin/sd
 }
 
-# 端口锁定机制
-get_port() {
-    local cached_port=""
-    if [ -f "/etc/sing-box/config.json" ]; then
-        cached_port=$(grep -oE '"listen_port": [0-9]+' /etc/sing-box/config.json | head -n 1 | awk '{print $2}')
+# 智能域名锁定与双栈 A/AAAA 记录核对
+get_domain() {
+    if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
+        local cached_domain=$(cat /etc/hy2_tuic/vps_domain.txt)
+        read -p "📋 检测到历史缓存域名 [$cached_domain]，是否直接复用？[Y/n]: " CONFIRM
+        if [ "$CONFIRM" = "n" ] || [ "$CONFIRM" = "N" ]; then
+            rm -f /etc/hy2_tuic/vps_domain.txt
+        else
+            DOMAIN=$cached_domain
+            return 0
+        fi
     fi
-    local default_p=38443
+
+    while true; do
+        read -p "👉 请输入您当前解析好的完整域名 (例如 us2.099889.xyz): " DOMAIN
+        if [ -z "$DOMAIN" ]; then continue; fi
+        
+        echo "🔄 正在校验域名的 DNS 解析记录 (检查 A 和 AAAA)..."
+        local domain_ip4=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
+        local domain_ip6=$(getent ahosts "$DOMAIN" | grep -E '^[0-9a-fA-F:]+$' | head -n 1 | awk '{print $1}')
+        
+        local MATCHED=0
+        if [ -n "$IP4" ] && [ "$domain_ip4" == "$IP4" ]; then MATCHED=1; fi
+        if [ -n "$IP6" ] && [ "$domain_ip6" == "$IP6" ]; then MATCHED=1; fi
+        
+        if [ $MATCHED -eq 1 ]; then
+            echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
+            echo "✅ 对账成功！域名 [$DOMAIN] 的解析已精准命中本机 IP。"
+            [ -n "$domain_ip4" ] && echo "   - 命中 IPv4: $domain_ip4"
+            [ -n "$domain_ip6" ] && echo "   - 命中 IPv6: $domain_ip6"
+            break
+        else
+            echo "❌ 校验失败：域名解析记录与本机双栈 IP 均不匹配！"
+            echo "   [当前 VPS IP] v4: $IP4 | v6: $IP6"
+            echo "   [域名解析 IP] v4: $domain_ip4 | v6: $domain_ip6"
+            read -p "👉 是否确认解析已生效，并强行继续？[y/N]: " FORCE
+            if [[ "$FORCE" =~ ^[Yy]$ ]]; then
+                echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
+                break
+            fi
+            echo "=========================================="
+        fi
+    done
+}
+
+# 全盘扫描本地官方配置，100% 榨出历史端口
+get_port() {
+    local proto=$1
+    local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
+    local cached_port=""
+    
+    if [ -f "$cache_file" ]; then
+        cached_port=$(cat "$cache_file")
+    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/config.yaml" ]; then
+        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/config.yaml | grep -oE '[0-9]+' | head -n 1)
+    elif [ "$proto" = "tuic" ] && [ -f "/etc/tuic/config.json" ]; then
+        cached_port=$(grep -oE '"server":\s*"[^"]+"' /etc/tuic/config.json | grep -oE '[0-9]+' | head -n 1)
+    fi
+    
+    local default_p=$(shuf -i 10000-60000 -n 1)
     
     if [ -n "$cached_port" ]; then
-        read -p "📋 检测到历史缓存 AnyTLS 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
+        read -p "📋 检测到历史缓存 ${proto} 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
         if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
+            echo "$cached_port" > "$cache_file"
             echo "$cached_port"
             return 0
         fi
     fi
     
-    read -p "👉 请输入 AnyTLS 监听端口 (直接回车使用默认 $default_p): " INPUT_PORT
-    echo "${INPUT_PORT:-$default_p}"
+    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
+    local final_port="${INPUT_PORT:-$default_p}"
+    echo "$final_port" > "$cache_file"
+    echo "$final_port"
 }
 
-# 智能证书同步与保底签发机制
+# 智能防御型证书管理，绝不卡死
 sync_cert() {
-    local target_dir="/etc/sing-box"
-    DOMAIN="anytls.vps.node"
-    if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
-        DOMAIN=$(cat /etc/hy2_tuic/vps_domain.txt)
-    fi
-
-    if [ -f "/etc/hysteria/server.crt" ]; then
-        echo "📥 检测到 Hysteria 2 已持有正规证书，正在执行无缝复制复用..."
-        cp /etc/hysteria/server.crt "$target_dir/server.crt"
-        cp /etc/hysteria/server.key "$target_dir/server.key"
-        IS_SELF_SIGNED=false
-    elif [ -f "/etc/tuic/server.crt" ]; then
-        echo "📥 检测到 TUIC 已持有正规证书，正在执行无缝复制复用..."
+    local target_dir=$1
+    get_domain
+    
+    if [ -f "/etc/tuic/server.crt" ] && [ "$target_dir" != "/etc/tuic" ]; then
+        echo "📥 检测到隔壁 TUIC 已持有正规证书，正在执行无缝复制复用..."
         cp /etc/tuic/server.crt "$target_dir/server.crt"
         cp /etc/tuic/server.key "$target_dir/server.key"
-        IS_SELF_SIGNED=false
+        return 0
+    elif [ -f "/etc/hysteria/server.crt" ] && [ "$target_dir" != "/etc/hysteria" ]; then
+        echo "📥 检测到隔壁 Hysteria 2 已持有正规证书，正在执行无缝复制复用..."
+        cp /etc/hysteria/server.crt "$target_dir/server.crt"
+        cp /etc/hysteria/server.key "$target_dir/server.key"
+        return 0
+    fi
+
+    echo "🔄 正在向 Let's Encrypt 申请正式合规证书..."
+    systemctl stop nginx apache2 2>/dev/null
+    curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    
+    # 强制监听双栈获取证书
+    ~/.acme.sh/acme.sh --listen-v6 --issue -d "$DOMAIN" --standalone
+    local issue_res=$?
+    
+    if [ $issue_res -ne 0 ]; then
+        # 尝试去掉强制 v6 参数再试一次
+        ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+        issue_res=$?
+    fi
+
+    if [ $issue_res -ne 0 ]; then
+        if [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
+            echo "📋 侦测到本地签发历史中已存有合法合规证书文件，判定为缓存复用通车！"
+            issue_res=0
+        fi
+    fi
+    
+    if [ $issue_res -eq 0 ]; then
+        local cert_dir="${DOMAIN}_ecc"
+        [ ! -d "/root/.acme.sh/$cert_dir" ] && cert_dir="$DOMAIN"
+        
+        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
+        echo "✅ 正规域名证书下发/复用成功！"
     else
-        echo "📋 未检测到本地正规域名证书，正在现场秒发 10 年期官方合规自签名证书保底..."
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-          -keyout "$target_dir/server.key" \
-          -out "$target_dir/server.crt" \
-          -subj "/CN=$DOMAIN" >/dev/null 2>&1
-        IS_SELF_SIGNED=true
+        echo "❌ 证书签发彻底失败，请检查 80 端口是否被占用，以及域名解析是否真实生效！"
+        exit 1
     fi
 }
 
 case $CHOICE in
     1)
+        PORT=$(get_port "hy2")
         init_env
-        PORT=$(get_port)
-        sync_cert
+        mkdir -p /etc/hysteria
+        bash <(curl -fsSL https://get.hy2.sh)
+        sync_cert "/etc/hysteria"
         
-        echo "🚀 正在下载 Sing-Box 官方原生二进制核心..."
-        ARCH=$(uname -m)
-        SB_ARCH="amd64"
-        [ "$ARCH" = "aarch64" ] && SB_ARCH="arm64"
+        # 写入 Hy2 配置（listen: :端口 默认自动绑定所有 IPv4 和 IPv6）
+        cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
+listen: :$PORT
+tls:
+  cert: /etc/hysteria/server.crt
+  key: /etc/hysteria/server.key
+auth:
+  type: password
+  password: $PASSWORD
+EOF_HY2_YAML
+
+        chown -R hysteria:hysteria /etc/hysteria
+        chmod 755 /etc/hysteria
+        chmod 644 /etc/hysteria/server.crt
+        chmod 600 /etc/hysteria/server.key
+
+        systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
-        LATEST_VER=$(curl -s https://api.github.com/repos/sagernet/sing-box/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        VERSION=${LATEST_VER#v}
-        
-        wget -qO /tmp/sing-box.tar.gz "https://github.com/sagernet/sing-box/releases/download/v${VERSION}/sing-box-${VERSION}-linux-${SB_ARCH}.tar.gz"
-        cd /tmp && tar -zxf sing-box.tar.gz
-        mv sing-box-${VERSION}-linux-${SB_ARCH}/sing-box /usr/local/bin/sing-box
-        chmod +x /usr/local/bin/sing-box
-        rm -rf sing-box*
-
-        # 🌟 核心修正：100% 对齐官方 inbound 标准格式，顺手塞入流速解封外挂
-        cat << EOF > /etc/sing-box/config.json
-{
-  "log": {
-    "level": "info"
-  },
-  "inbounds": [
-    {
-      "type": "anytls",
-      "tag": "anytls-in",
-      "listen": "0.0.0.0",
-      "listen_port": $PORT,
-      "tcp_fast_open": true,
-      "tcp_multi_path": true,
-      "users": [
-        {
-          "name": "qiutonglin",
-          "password": "$PASSWORD"
-        }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "$DOMAIN",
-        "certificate_path": "/etc/sing-box/server.crt",
-        "key_path": "/etc/sing-box/server.key"
-      }
-    }
-  ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
-}
-EOF
-
-        echo "🔄 正在进行官方内核合规性核验..."
-        /usr/local/bin/sing-box check -c /etc/sing-box/config.json
-
-        # 注入标准 Systemd 后台守护
-        cat << EOF > /etc/systemd/system/sing-box.service
-[Unit]
-Description=Sing-Box AnyTLS Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/etc/sing-box
-ExecStart=/usr/local/bin/sing-box run -c /etc/sing-box/config.json
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-        systemctl daemon-reload
-        systemctl enable sing-box >/dev/null 2>&1
-        systemctl restart sing-box
-        
-        # 动态组装完全体链接并合流进总账本
-        # 对齐最新 AnyTLS 客户端规范识别规则
         GEO_TAG=$(get_geo_tag)
-        if [ "$IS_SELF_SIGNED" = true ]; then
-            ANYTLS_LINK="anytls://$PASSWORD@$IP:$PORT?sni=$DOMAIN&allowInsecure=1#AnyTLS_${GEO_TAG}"
-        else
-            ANYTLS_LINK="anytls://$PASSWORD@$IP:$PORT?sni=$DOMAIN#AnyTLS_${GEO_TAG}"
-        fi
-        
+        HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
-        sed -i '/#AnyTLS_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$ANYTLS_LINK" >> /etc/hy2_tuic/saved_links.txt
-        
+        sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
+        echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
         deploy_shortcut
+
         clear
         /usr/local/bin/sd
         ;;
 
     2)
+        PORT=$(get_port "tuic")
+        init_env
+        mkdir -p /etc/tuic
+        sync_cert "/etc/tuic"
+        
+        echo "🚀 正在下载 TUIC v5 服务端核心..."
+        TUIC_ARCH="x86_64-unknown-linux-gnu"
+        [ "$(uname -m)" = "aarch64" ] && TUIC_ARCH="aarch64-unknown-linux-gnu"
+        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
+        chmod +x /usr/local/bin/tuic-server
+
+        # 写入 TUIC 配置 (修改为 [::]:$PORT 以确保纯 IPv6 或双栈同时接单)
+        cat << EOF_TUIC_JSON > /etc/tuic/config.json
+{
+  "server": "[::]:$PORT",
+  "users": {
+    "$UUID": "$PASSWORD"
+  },
+  "certificate": "/etc/tuic/server.crt",
+  "private_key": "/etc/tuic/server.key",
+  "congestion_control": "bbr",
+  "alpn": ["h3"]
+}
+EOF_TUIC_JSON
+
+        cat << EOF_TUIC_SERVICE > /etc/systemd/system/tuic.service
+[Unit]
+Description=TUIC V5 Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/tuic
+ExecStart=/usr/local/bin/tuic-server -c /etc/tuic/config.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF_TUIC_SERVICE
+
+        systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
+        
+        GEO_TAG=$(get_geo_tag)
+        TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
+        touch /etc/hy2_tuic/saved_links.txt
+        sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
+        echo "$TUIC_LINK" >> /etc/hy2_tuic/saved_links.txt
+        deploy_shortcut
+
+        clear
+        /usr/local/bin/sd
+        ;;
+
+    3)
         if [ -f "/usr/local/bin/sd" ]; then
             /usr/local/bin/sd
         else
@@ -247,16 +327,15 @@ EOF
         fi
         ;;
 
-    3)
-        echo "🧹 正在彻底剥离 Sing-Box 服务端与残留环境..."
-        systemctl stop sing-box 2>/dev/null
-        systemctl disable sing-box 2>/dev/null
-        rm -f /etc/systemd/system/sing-box.service
+    4)
+        echo "🧹 正在强行剥离所有后台进程与残留环境..."
+        systemctl stop hysteria-server tuic 2>/dev/null
+        systemctl disable hysteria-server tuic 2>/dev/null
+        rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
         systemctl daemon-reload
-        rm -f /usr/local/bin/sing-box
-        rm -rf /etc/sing-box
-        sed -i '/#AnyTLS_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "✅ AnyTLS (Sing-Box) 环境已彻底清洗干净！"
+        rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
+        rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
+        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
         ;;
     *)
         exit 1
