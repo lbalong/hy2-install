@@ -6,7 +6,6 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
@@ -19,7 +18,6 @@ echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
-# 100% 还原你原版好使的 IP 检测，一字不差
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
 IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
@@ -101,15 +99,8 @@ get_domain() {
     fi
 
     while true; do
-        read -p "👉 请输入您当前解析好的完整域名 (直接回车将建立纯IP自签节点): " DOMAIN
-        
-        # 满足需求一：直接回车不输入域名，判定为纯IP节点，DOMAIN强行等于本机公网IP并跳出
-        if [ -z "$DOMAIN" ]; then
-            DOMAIN="$IP"
-            echo "$IP" > /etc/hy2_tuic/vps_domain.txt
-            break
-        fi
-        
+        read -p "👉 请输入您当前解析好的完整域名: " DOMAIN
+        if [ -z "$DOMAIN" ]; then continue; fi
         echo "🔄 正在校验域名解析..."
         local domain_ip=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
         local domain_ip6=$(getent ahosts "$DOMAIN" | grep -E '^[0-9a-fA-F:]+$' | head -n 1 | awk '{print $1}')
@@ -157,13 +148,6 @@ sync_cert() {
         cp /etc/hysteria/server.crt "$target_dir/server.crt" && cp /etc/hysteria/server.key "$target_dir/server.key"; return 0
     fi
 
-    # 满足需求一：如果没有输入域名（此时DOMAIN变量已经等于IP），直接本地物理自签证书，不去acme折腾
-    if [ "$DOMAIN" = "$IP" ]; then
-        echo "🔒 正在本地物理生成纯IP专用10年期自签TLS证书..."
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout "$target_dir/server.key" -out "$target_dir/server.crt" -subj "/CN=$IP" >/dev/null 2>&1
-        return 0
-    fi
-
     systemctl stop nginx apache2 2>/dev/null
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
@@ -202,15 +186,11 @@ EOF_HY2_YAML
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 满足需求二：彻底删除“强走IPv4高速版”，只分情况写回域名版或纯IP版，且IPv6节点独立于判断之外，全自动放行吐出
-        if [ "$DOMAIN" = "$IP" ]; then
-            echo "hy2://$PASSWORD@$IP:$PORT?insecure=1&sni=www.bing.com#Hy2_纯IP自签版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        else
-            echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        fi
-        
+        # 【核心破局点】：强制拆分输出 3 条链接
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        echo "hy2://$PASSWORD@$IP:$PORT?sni=$DOMAIN#Hy2_强走IPv4高速版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
-            echo "hy2://$PASSWORD@[${IP6}]:$PORT?insecure=1&sni=www.bing.com#Hy2_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
@@ -265,15 +245,11 @@ EOF_TUIC_SERVICE
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 满足需求二：彻底删除“强走IPv4高速版”
-        if [ "$DOMAIN" = "$IP" ]; then
-            echo "tuic://$UUID:$PASSWORD@$IP:$PORT?congestion_control=bbr&alpn=h3&insecure=1&sni=www.bing.com#TUIC_纯IP自签版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        else
-            echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        fi
-        
+        # 【核心破局点】：强制拆分输出 3 条链接
+        echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        echo "tuic://$UUID:$PASSWORD@$IP:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv4高速版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
-            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&insecure=1&sni=www.bing.com#TUIC_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
