@@ -74,7 +74,7 @@ deploy_shortcut() {
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo "📋 当前 VPS 已保存的节点链接汇总 (已分离 IPv4 和 IPv6)"
+    echo "📋 当前 VPS 已保存的节点链接汇总"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
@@ -97,30 +97,15 @@ get_domain() {
         fi
     fi
 
-    while true; do
-        read -p "👉 请输入您当前解析好的完整域名 (直接回车则使用纯IP模式): " DOMAIN
-        if [ -z "$DOMAIN" ]; then
-            DOMAIN=$IP
-            echo "⚠️ 已选择纯IP模式。"
-            break
-        fi
-        echo "🔄 正在校验域名解析..."
-        local domain_ip=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
-        local domain_ip6=$(getent ahosts "$DOMAIN" | grep -E '^[0-9a-fA-F:]+$' | head -n 1 | awk '{print $1}')
-        
-        if [ "$domain_ip" = "$IP" ] || [ "$domain_ip6" = "$IP6" ]; then
-            echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
-            echo "✅ 校验通过！"
-            break
-        else
-            echo "❌ 校验失败：解析 IP 与本机不符！"
-            read -p "👉 是否确认解析已生效，并强行继续？[y/N]: " FORCE
-            if [[ "$FORCE" =~ ^[Yy]$ ]]; then
-                echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
-                break
-            fi
-        fi
-    done
+    read -p "👉 请输入域名 (直接回车则使用纯IP模式): " INPUT_DOMAIN
+    if [ -z "$INPUT_DOMAIN" ]; then
+        DOMAIN=$IP
+        echo "✅ 已确认使用纯IP模式: $DOMAIN"
+    else
+        DOMAIN=$INPUT_DOMAIN
+        echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
+        echo "✅ 域名已设为: $DOMAIN"
+    fi
 }
 
 get_port() {
@@ -145,6 +130,12 @@ get_port() {
 sync_cert() {
     local target_dir=$1
     get_domain
+    # 纯IP模式跳过申请证书
+    if [ "$DOMAIN" = "$IP" ]; then
+        echo "⚠️ 纯IP模式，跳过证书申请。"
+        return 0
+    fi
+
     if [ -f "/etc/tuic/server.crt" ] && [ "$target_dir" != "/etc/tuic" ]; then
         cp /etc/tuic/server.crt "$target_dir/server.crt" && cp /etc/tuic/server.key "$target_dir/server.key"; return 0
     elif [ -f "/etc/hysteria/server.crt" ] && [ "$target_dir" != "/etc/hysteria" ]; then
@@ -189,9 +180,10 @@ EOF_HY2_YAML
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        # 只输出常规版
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
-            echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
@@ -246,9 +238,10 @@ EOF_TUIC_SERVICE
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        # 只输出常规版
+        echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
-            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
