@@ -9,7 +9,7 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (最终毕业版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (已移除慢速节点版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
@@ -49,12 +49,14 @@ net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "正在物理清洗内部防火墙残留（全开接单状态）..."
+    echo "正在物理清洗内部防火墙残留..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
+    
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
+    # 仅开启 IPv6 防火墙，其余原封不动
     if command -v ip6tables > /dev/null; then
         ip6tables -F && ip6tables -X
         ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
@@ -73,7 +75,7 @@ deploy_shortcut() {
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo "📋 当前 VPS 已保存的节点链接汇总"
+    echo "📋 当前 VPS 已保存的节点链接汇总 (已分离 IPv4 和 IPv6)"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
