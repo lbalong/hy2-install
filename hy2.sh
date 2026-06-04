@@ -9,7 +9,7 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (原版暴力修补版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (双栈满血最终版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
@@ -56,7 +56,6 @@ EOF_SYSCTL
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
-    # 仅开启 IPv6 防火墙，其余原封不动
     if command -v ip6tables > /dev/null; then
         ip6tables -F && ip6tables -X
         ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
@@ -75,7 +74,7 @@ deploy_shortcut() {
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo "📋 当前 VPS 已保存的节点链接汇总 (已分离 IPv4 和 IPv6)"
+    echo "📋 当前 VPS 已保存的节点链接汇总"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
@@ -186,11 +185,9 @@ EOF_HY2_YAML
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 【核心破局点】：强制拆分输出 3 条链接
-        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        echo "hy2://$PASSWORD@$IP:$PORT?sni=$DOMAIN#Hy2_强走IPv4高速版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
-            echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_专属IPv6_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
@@ -245,11 +242,9 @@ EOF_TUIC_SERVICE
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 【核心破局点】：强制拆分输出 3 条链接
-        echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        echo "tuic://$UUID:$PASSWORD@$IP:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv4高速版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
-            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_专属IPv6_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
