@@ -6,14 +6,13 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo " Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (双栈 IPv4+IPv6 版)"
+echo " Hysteria 2 & TUIC v5 (双栈 IPv4+IPv6 / 纯IP直连双模版)"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (双栈支持 + 全盘扫描端口 + 证书智能复用)"
-echo " 2. 安装 TUIC v5    (双栈支持 + 全盘扫描端口 + 证书智能复用)"
+echo " 1. 安装 Hysteria 2"
+echo " 2. 安装 TUIC v5"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
@@ -21,8 +20,8 @@ read -p "👉 请选择操作 [1-4]: " CHOICE
 
 # 双栈网络环境探测
 echo "🔍 正在探测网络环境..."
-IP4=$(curl -sS4 https://api.ipify.org --connect-timeout 3 2>/dev/null || curl -sS4 https://ifconfig.me --connect-timeout 3 2>/dev/null)
-IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null || curl -sS6 https://ifconfig.co --connect-timeout 3 2>/dev/null)
+IP4=$(curl -sS4 https://api.ipify.org --connect-timeout 3 2>/dev/null)
+IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null)
 
 if [ -z "$IP4" ] && [ -z "$IP6" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
   echo "❌ 错误：无法获取服务器公网 IPv4 或 IPv6 地址，请检查网络连接。"
@@ -35,22 +34,18 @@ fi
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
 
-# 智能获取服务商与地理位置标签 (优先使用 IPv4 测地理位置，API 兼容性好)
 get_geo_tag() {
     local test_ip=${IP4:-$IP6}
     local geo_info=$(curl -s --max-time 3 "http://ip-api.com/json/$test_ip")
     if [ -n "$geo_info" ] && echo "$geo_info" | grep -q '"status":"success"'; then
         local isp=$(echo "$geo_info" | grep -oE '"isp":"[^"]+"' | cut -d'"' -f4 | awk '{print $1}')
         local country=$(echo "$geo_info" | grep -oE '"country":"[^"]+"' | cut -d'"' -f4 | tr -d ' ')
-        isp=$(echo "$isp" | tr -cd 'A-Za-z0-9_')
-        country=$(echo "$country" | tr -cd 'A-Za-z0-9_')
-        echo "${isp}_${country}"
+        echo "${isp}_${country}" | tr -cd 'A-Za-z0-9_'
     else
         echo "VPS_Node"
     fi
 }
 
-# 核心环境与系统防火墙一键物理洗地 (支持双栈)
 init_env() {
     echo "⚙️ 正在优化内核 UDP 缓冲区..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
@@ -59,15 +54,11 @@ net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "🛡️ 正在物理清洗内部防火墙残留（双栈全开接单状态）..."
+    echo "🛡️ 正在物理清洗内部防火墙残留..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
-    
-    # 清洗 IPv4 规则
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
-    
-    # 清洗 IPv6 规则
     if command -v ip6tables > /dev/null; then
         ip6tables -F && ip6tables -X
         ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
@@ -80,41 +71,46 @@ EOF_SYSCTL
     fi
 }
 
-# 部署专属快捷查询命令 sd
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo " 📋 当前 VPS 已保存的节点链接汇总 (双栈通用版)"
-    echo "    (客户端将根据网络情况自动通过域名解析走 v4 或 v6)"
+    echo " 📋 当前 VPS 已保存的节点链接汇总"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
 else
-    echo "❌ 未找到已保存的节点信息，请先使用脚本创建节点！"
+    echo "❌ 未找到已保存的节点信息！"
 fi
 EOF_SHOW
     chmod +x /usr/local/bin/sd
 }
 
-# 智能域名锁定与双栈 A/AAAA 记录核对
+# 域名的智能分流逻辑（支持回车直接用 IP）
 get_domain() {
     if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
         local cached_domain=$(cat /etc/hy2_tuic/vps_domain.txt)
-        read -p "📋 检测到历史缓存域名 [$cached_domain]，是否直接复用？[Y/n]: " CONFIRM
-        if [ "$CONFIRM" = "n" ] || [ "$CONFIRM" = "N" ]; then
-            rm -f /etc/hy2_tuic/vps_domain.txt
+        if [ "$cached_domain" == "PURE_IP_MODE" ]; then
+             read -p "📋 检测到上次使用的是【纯 IP 模式】，是否继续复用？[Y/n]: " CONFIRM
+             if [[ ! "$CONFIRM" =~ ^[nN]$ ]]; then TYPE="IP"; DOMAIN="PURE_IP_MODE"; return 0; fi
         else
-            DOMAIN=$cached_domain
-            return 0
+             read -p "📋 检测到历史缓存域名 [$cached_domain]，是否直接复用？[Y/n]: " CONFIRM
+             if [[ ! "$CONFIRM" =~ ^[nN]$ ]]; then TYPE="DOMAIN"; DOMAIN=$cached_domain; return 0; fi
         fi
+        rm -f /etc/hy2_tuic/vps_domain.txt
     fi
 
     while true; do
-        read -p "👉 请输入您当前解析好的完整域名 (例如 us2.099889.xyz): " DOMAIN
-        if [ -z "$DOMAIN" ]; then continue; fi
+        read -p "👉 请输入完整域名 (直接回车则开启纯 IP 直连模式): " DOMAIN
+        if [ -z "$DOMAIN" ]; then
+            echo "✅ 已选择纯 IP 模式，将自动生成自签证书。"
+            TYPE="IP"
+            DOMAIN="PURE_IP_MODE"
+            echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
+            break
+        fi
         
         echo "🔄 正在校验域名的 DNS 解析记录 (检查 A 和 AAAA)..."
         local domain_ip4=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
@@ -125,48 +121,33 @@ get_domain() {
         if [ -n "$IP6" ] && [ "$domain_ip6" == "$IP6" ]; then MATCHED=1; fi
         
         if [ $MATCHED -eq 1 ]; then
+            TYPE="DOMAIN"
             echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
-            echo "✅ 对账成功！域名 [$DOMAIN] 的解析已精准命中本机 IP。"
-            [ -n "$domain_ip4" ] && echo "   - 命中 IPv4: $domain_ip4"
-            [ -n "$domain_ip6" ] && echo "   - 命中 IPv6: $domain_ip6"
+            echo "✅ 对账成功！域名 [$DOMAIN] 的解析已精准命中。"
             break
         else
             echo "❌ 校验失败：域名解析记录与本机双栈 IP 均不匹配！"
-            echo "   [当前 VPS IP] v4: $IP4 | v6: $IP6"
-            echo "   [域名解析 IP] v4: $domain_ip4 | v6: $domain_ip6"
             read -p "👉 是否确认解析已生效，并强行继续？[y/N]: " FORCE
             if [[ "$FORCE" =~ ^[Yy]$ ]]; then
+                TYPE="DOMAIN"
                 echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
                 break
             fi
-            echo "=========================================="
         fi
     done
 }
 
-# 全盘扫描本地官方配置，100% 榨出历史端口
 get_port() {
     local proto=$1
     local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
     local cached_port=""
     
-    if [ -f "$cache_file" ]; then
-        cached_port=$(cat "$cache_file")
-    elif [ "$proto" = "hy2" ] && [ -f "/etc/hysteria/config.yaml" ]; then
-        cached_port=$(grep -oE 'listen:\s*:[0-9]+' /etc/hysteria/config.yaml | grep -oE '[0-9]+' | head -n 1)
-    elif [ "$proto" = "tuic" ] && [ -f "/etc/tuic/config.json" ]; then
-        cached_port=$(grep -oE '"server":\s*"[^"]+"' /etc/tuic/config.json | grep -oE '[0-9]+' | head -n 1)
-    fi
-    
+    if [ -f "$cache_file" ]; then cached_port=$(cat "$cache_file"); fi
     local default_p=$(shuf -i 10000-60000 -n 1)
     
     if [ -n "$cached_port" ]; then
         read -p "📋 检测到历史缓存 ${proto} 端口 [$cached_port]，是否直接复用？[Y/n]: " CONFIRM
-        if [ "$CONFIRM" != "n" ] && [ "$CONFIRM" != "N" ]; then
-            echo "$cached_port" > "$cache_file"
-            echo "$cached_port"
-            return 0
-        fi
+        if [[ ! "$CONFIRM" =~ ^[nN]$ ]]; then echo "$cached_port"; return 0; fi
     fi
     
     read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $default_p): " INPUT_PORT
@@ -175,18 +156,25 @@ get_port() {
     echo "$final_port"
 }
 
-# 智能防御型证书管理，绝不卡死
+# 证书逻辑：按 IP 模式或域名模式分流
 sync_cert() {
     local target_dir=$1
     get_domain
     
+    # 纯 IP 模式：强制自签发证书
+    if [ "$TYPE" == "IP" ]; then
+        echo "🔄 纯 IP 模式：正在使用 OpenSSL 生成本地自签证书..."
+        openssl ecparam -genkey -name prime256v1 -out "$target_dir/server.key"
+        openssl req -new -x509 -days 3650 -key "$target_dir/server.key" -out "$target_dir/server.crt" -subj "/CN=www.bing.com"
+        return 0
+    fi
+    
+    # 域名模式：复用或申请正式证书
     if [ -f "/etc/tuic/server.crt" ] && [ "$target_dir" != "/etc/tuic" ]; then
-        echo "📥 检测到隔壁 TUIC 已持有正规证书，正在执行无缝复制复用..."
         cp /etc/tuic/server.crt "$target_dir/server.crt"
         cp /etc/tuic/server.key "$target_dir/server.key"
         return 0
     elif [ -f "/etc/hysteria/server.crt" ] && [ "$target_dir" != "/etc/hysteria" ]; then
-        echo "📥 检测到隔壁 Hysteria 2 已持有正规证书，正在执行无缝复制复用..."
         cp /etc/hysteria/server.crt "$target_dir/server.crt"
         cp /etc/hysteria/server.key "$target_dir/server.key"
         return 0
@@ -196,34 +184,15 @@ sync_cert() {
     systemctl stop nginx apache2 2>/dev/null
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    ~/.acme.sh/acme.sh --listen-v6 --issue -d "$DOMAIN" --standalone || ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
     
-    # 强制监听双栈获取证书
-    ~/.acme.sh/acme.sh --listen-v6 --issue -d "$DOMAIN" --standalone
-    local issue_res=$?
-    
-    if [ $issue_res -ne 0 ]; then
-        # 尝试去掉强制 v6 参数再试一次
-        ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-        issue_res=$?
-    fi
-
-    if [ $issue_res -ne 0 ]; then
-        if [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
-            echo "📋 侦测到本地签发历史中已存有合法合规证书文件，判定为缓存复用通车！"
-            issue_res=0
-        fi
-    fi
-    
-    if [ $issue_res -eq 0 ]; then
-        local cert_dir="${DOMAIN}_ecc"
-        [ ! -d "/root/.acme.sh/$cert_dir" ] && cert_dir="$DOMAIN"
-        
-        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
-        echo "✅ 正规域名证书下发/复用成功！"
-    else
-        echo "❌ 证书签发彻底失败，请检查 80 端口是否被占用，以及域名解析是否真实生效！"
+    if [ $? -ne 0 ] && [ ! -d "/root/.acme.sh/${DOMAIN}_ecc" ] && [ ! -d "/root/.acme.sh/${DOMAIN}" ]; then
+        echo "❌ 证书签发彻底失败！"
         exit 1
     fi
+    
+    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
+    echo "✅ 正规域名证书下发/复用成功！"
 }
 
 case $CHOICE in
@@ -234,7 +203,6 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
-        # 写入 Hy2 配置（listen: :端口 默认自动绑定所有 IPv4 和 IPv6）
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -253,12 +221,17 @@ EOF_HY2_YAML
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
         GEO_TAG=$(get_geo_tag)
-        HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
+        
+        if [ "$TYPE" == "IP" ]; then
+            [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT?insecure=1&sni=www.bing.com#Hy2_IPv4_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            [ -n "$IP6" ] && echo "hy2://$PASSWORD@[${IP6}]:$PORT?insecure=1&sni=www.bing.com#Hy2_IPv6_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        else
+            echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_Domain_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        fi
+        
         deploy_shortcut
-
         clear
         /usr/local/bin/sd
         ;;
@@ -269,13 +242,12 @@ EOF_HY2_YAML
         mkdir -p /etc/tuic
         sync_cert "/etc/tuic"
         
-        echo "🚀 正在下载 TUIC v5 服务端核心..."
+        echo "🚀 正在下载 TUIC v5..."
         TUIC_ARCH="x86_64-unknown-linux-gnu"
         [ "$(uname -m)" = "aarch64" ] && TUIC_ARCH="aarch64-unknown-linux-gnu"
-        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
+        wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
         chmod +x /usr/local/bin/tuic-server
 
-        # 写入 TUIC 配置 (修改为 [::]:$PORT 以确保纯 IPv6 或双栈同时接单)
         cat << EOF_TUIC_JSON > /etc/tuic/config.json
 {
   "server": "[::]:$PORT",
@@ -309,35 +281,34 @@ EOF_TUIC_SERVICE
         systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
         
         GEO_TAG=$(get_geo_tag)
-        TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
-        echo "$TUIC_LINK" >> /etc/hy2_tuic/saved_links.txt
+        
+        if [ "$TYPE" == "IP" ]; then
+            [ -n "$IP4" ] && echo "tuic://$UUID:$PASSWORD@$IP4:$PORT?congestion_control=bbr&alpn=h3&allow_insecure=1&sni=www.bing.com#TUIC_IPv4_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+            [ -n "$IP6" ] && echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&allow_insecure=1&sni=www.bing.com#TUIC_IPv6_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        else
+            echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_Domain_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
+        fi
+        
         deploy_shortcut
-
         clear
         /usr/local/bin/sd
         ;;
 
     3)
-        if [ -f "/usr/local/bin/sd" ]; then
-            /usr/local/bin/sd
-        else
-            echo "❌ 未找到已保存的节点信息！"
-        fi
+        if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo "❌ 未找到保存的节点信息！"; fi
         ;;
 
     4)
-        echo "🧹 正在强行剥离所有后台进程与残留环境..."
+        echo "🧹 正在清洗环境..."
         systemctl stop hysteria-server tuic 2>/dev/null
         systemctl disable hysteria-server tuic 2>/dev/null
         rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/tuic.service
         systemctl daemon-reload
         rm -f /usr/local/bin/hysteria /usr/local/bin/tuic-server /usr/local/bin/sd
         rm -rf /etc/hysteria /etc/tuic /etc/hy2_tuic
-        echo "✅ VPS 环境与 sd 快捷指令已彻底清洗干净！"
+        echo "✅ 清洗完成！"
         ;;
-    *)
-        exit 1
-        ;;
+    *) exit 1 ;;
 esac
