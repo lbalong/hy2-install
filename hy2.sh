@@ -10,7 +10,7 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (域名/纯IP双模版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (双模定制版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
@@ -20,8 +20,8 @@ echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
 # 提取公共核心变量 (新增双栈探测)
-IP4=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
-IP6=$(curl -sS6 https://api64.ipify.org || curl -sS6 https://ifconfig.co 2>/dev/null)
+IP4=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org --connect-timeout 3 2>/dev/null)
+IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
 
@@ -48,7 +48,7 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境与系统防火墙一键物理洗地
+# 核心环境与系统防火墙一键物理洗地 (支持双栈)
 init_env() {
     echo "正在优化内核 UDP 缓冲区..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
@@ -61,11 +61,9 @@ EOF_SYSCTL
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
     
-    # 清理 IPv4
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
     
-    # 清理 IPv6
     if command -v ip6tables > /dev/null; then
         ip6tables -F && ip6tables -X
         ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
@@ -96,7 +94,7 @@ EOF_SHOW
     chmod +x /usr/local/bin/sd
 }
 
-# 智能域名锁定 (加入纯 IP 回车盲狙逻辑)
+# 智能域名锁定 (加入回车直接跳过的纯 IP 逻辑)
 get_domain() {
     if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
         local cached_domain=$(cat /etc/hy2_tuic/vps_domain.txt)
@@ -110,16 +108,15 @@ get_domain() {
             rm -f /etc/hy2_tuic/vps_domain.txt
         else
             DOMAIN=$cached_domain
-            USE_DOMAIN=1
-            [ "$DOMAIN" = "PURE_IP" ] && USE_DOMAIN=0
+            [ "$DOMAIN" = "PURE_IP" ] && USE_DOMAIN=0 || USE_DOMAIN=1
             return 0
         fi
     fi
 
     while true; do
-        read -p "👉 请输入您当前解析好的完整域名 (直接回车则开启纯 IP 模式): " DOMAIN_INPUT
+        read -p "👉 请输入您当前解析好的完整域名 (直接回车跳过校验，使用纯 IP 模式): " DOMAIN_INPUT
         if [ -z "$DOMAIN_INPUT" ]; then
-            echo "✅ 已选择纯 IP 模式，将跳过域名校验并生成自签证书。"
+            echo "✅ 已选择纯 IP 模式，将自动生成自签证书。"
             DOMAIN="PURE_IP"
             USE_DOMAIN=0
             echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
@@ -192,7 +189,7 @@ sync_cert() {
     get_domain
     
     if [ "$USE_DOMAIN" -eq 0 ]; then
-        echo "🔄 检测到纯 IP 模式，正在生成本地自签证书..."
+        echo "🔄 纯 IP 模式：正在使用 OpenSSL 生成本地自签证书..."
         openssl ecparam -genkey -name prime256v1 -out "$target_dir/server.key"
         openssl req -new -x509 -days 3650 -key "$target_dir/server.key" -out "$target_dir/server.crt" -subj "/CN=bing.com"
         return 0
