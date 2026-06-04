@@ -10,7 +10,7 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (GitHub 纯净版)"
+echo "    Hysteria 2 & TUIC v5 IPv6双栈纯血版 V8.7 (GitHub 纯净版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
@@ -43,20 +43,24 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境与系统防火墙一键物理洗地
+# 核心环境与系统防火墙一键物理洗地 (精准注入 IPv6 清洗规则)
 init_env() {
-    echo "正在优化内核 UDP 缓冲区..."
+    echo "正在优化内核 UDP 缓冲区并激活 IPv6 双栈..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
 net.core.rmem_max=8388608
 net.core.wmem_max=8388608
+net.ipv6.conf.all.disable_ipv6 = 0
+net.ipv6.conf.default.disable_ipv6 = 0
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "正在物理清洗内部防火墙残留（全开接单状态）..."
+    echo "正在物理清洗内部防火墙残留（全开 IPv4/IPv6 接单状态）..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
     iptables -F && iptables -X
+    ip6tables -F && ip6tables -X 2>/dev/null
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
+    ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
 
     if command -v apt-get >/dev/null; then
       apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools
@@ -197,8 +201,9 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
+        # 核心精准改动：听牌地址升级为 [::] 实现 IPv4/IPv6 双栈接单
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
-listen: :$PORT
+listen: [::]:$PORT
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
@@ -237,9 +242,10 @@ EOF_HY2_YAML
         wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
         chmod +x /usr/local/bin/tuic-server
 
+        # 核心精准改动：听牌地址升级为 [::] 实现 IPv4/IPv6 双栈接单
         cat << EOF_TUIC_JSON > /etc/tuic/config.json
 {
-  "server": "0.0.0.0:$PORT",
+  "server": "[::]:$PORT",
   "users": {
     "$UUID": "$PASSWORD"
   },
