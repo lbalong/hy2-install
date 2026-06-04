@@ -6,28 +6,24 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+# 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /etc/hy2_tuic
 
-# 提取公共核心变量
-IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
-IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null)
-PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
-UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
-
-clear
 echo "=========================================================="
 echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (原版暴力修补版)"
 echo "=========================================================="
-echo " 📡 本机公网 IP 检测对账单："
-echo "    ➔ 本地 IPv4 地址: ${IP:-❌ 未分配或获取失败}"
-echo "    ➔ 本地 IPv6 地址: ${IP6:-❌ 未分配或无外网IPv6}"
-echo "----------------------------------------------------------"
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
+
+# 100% 还原你原版好使的 IP 检测，一字不差
+IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
+IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null)
+PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
 
 if [ -z "$IP" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
   echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
@@ -106,12 +102,14 @@ get_domain() {
 
     while true; do
         read -p "👉 请输入您当前解析好的完整域名 (直接回车将建立纯IP自签节点): " DOMAIN
+        
+        # 满足需求一：直接回车不输入域名，判定为纯IP节点，DOMAIN强行等于本机公网IP并跳出
         if [ -z "$DOMAIN" ]; then
-            DOMAIN="PURE_IP_MODE"
-            echo "纯IP" > /etc/hy2_tuic/vps_domain.txt
-            echo "⚠️ 检测到未输入域名，系统将自动切入纯IP自签证书部署模式！"
+            DOMAIN="$IP"
+            echo "$IP" > /etc/hy2_tuic/vps_domain.txt
             break
         fi
+        
         echo "🔄 正在校验域名解析..."
         local domain_ip=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
         local domain_ip6=$(getent ahosts "$DOMAIN" | grep -E '^[0-9a-fA-F:]+$' | head -n 1 | awk '{print $1}')
@@ -153,17 +151,16 @@ get_port() {
 sync_cert() {
     local target_dir=$1
     get_domain
-    
     if [ -f "/etc/tuic/server.crt" ] && [ "$target_dir" != "/etc/tuic" ]; then
         cp /etc/tuic/server.crt "$target_dir/server.crt" && cp /etc/tuic/server.key "$target_dir/server.key"; return 0
     elif [ -f "/etc/hysteria/server.crt" ] && [ "$target_dir" != "/etc/hysteria" ]; then
         cp /etc/hysteria/server.crt "$target_dir/server.crt" && cp /etc/hysteria/server.key "$target_dir/server.key"; return 0
     fi
 
-    if [ "$DOMAIN" = "PURE_IP_MODE" ]; then
+    # 满足需求一：如果没有输入域名（此时DOMAIN变量已经等于IP），直接本地物理自签证书，不去acme折腾
+    if [ "$DOMAIN" = "$IP" ]; then
         echo "🔒 正在本地物理生成纯IP专用10年期自签TLS证书..."
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout "$target_dir/server.key" -out "$target_dir/server.crt" -subj "/CN=$IP" >/dev/null 2>&1
-        echo "✅ 纯IP自签证书就位！"
         return 0
     fi
 
@@ -205,17 +202,15 @@ EOF_HY2_YAML
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 彻底打通双栈独立输出：不再发生逻辑截流
-        if [ "$DOMAIN" = "PURE_IP_MODE" ]; then
+        # 满足需求二：彻底删除“强走IPv4高速版”，只分情况写回域名版或纯IP版，且IPv6节点独立于判断之外，全自动放行吐出
+        if [ "$DOMAIN" = "$IP" ]; then
             echo "hy2://$PASSWORD@$IP:$PORT?insecure=1&sni=www.bing.com#Hy2_纯IP自签版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            if [ -n "$IP6" ]; then
-                echo "hy2://$PASSWORD@[${IP6}]:$PORT?insecure=1&sni=www.bing.com#Hy2_纯IPv6自签版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            fi
         else
             echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            if [ -n "$IP6" ]; then
-                echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            fi
+        fi
+        
+        if [ -n "$IP6" ]; then
+            echo "hy2://$PASSWORD@[${IP6}]:$PORT?insecure=1&sni=www.bing.com#Hy2_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
@@ -270,17 +265,15 @@ EOF_TUIC_SERVICE
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 彻底打通双栈独立输出：不再发生逻辑截流
-        if [ "$DOMAIN" = "PURE_IP_MODE" ]; then
+        # 满足需求二：彻底删除“强走IPv4高速版”
+        if [ "$DOMAIN" = "$IP" ]; then
             echo "tuic://$UUID:$PASSWORD@$IP:$PORT?congestion_control=bbr&alpn=h3&insecure=1&sni=www.bing.com#TUIC_纯IP自签版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            if [ -n "$IP6" ]; then
-                echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&insecure=1&sni=www.bing.com#TUIC_纯IPv6自签版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            fi
         else
             echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            if [ -n "$IP6" ]; then
-                echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-            fi
+        fi
+        
+        if [ -n "$IP6" ]; then
+            echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&insecure=1&sni=www.bing.com#TUIC_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
 
         deploy_shortcut
