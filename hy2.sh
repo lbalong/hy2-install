@@ -9,7 +9,7 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (原版暴力修补版)"
+echo "   Hysteria 2 & TUIC v5 纯血逻辑完全体 (原版暴力修补版)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
@@ -56,7 +56,6 @@ EOF_SYSCTL
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
 
-    # 仅开启 IPv6 防火墙，其余原封不动
     if command -v ip6tables > /dev/null; then
         ip6tables -F && ip6tables -X
         ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
@@ -99,8 +98,12 @@ get_domain() {
     fi
 
     while true; do
-        read -p "👉 请输入您当前解析好的完整域名: " DOMAIN
-        if [ -z "$DOMAIN" ]; then continue; fi
+        read -p "👉 请输入您当前解析好的完整域名 (直接回车则使用纯IP模式): " DOMAIN
+        if [ -z "$DOMAIN" ]; then
+            DOMAIN=$IP
+            echo "⚠️ 已选择纯IP模式。"
+            break
+        fi
         echo "🔄 正在校验域名解析..."
         local domain_ip=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
         local domain_ip6=$(getent ahosts "$DOMAIN" | grep -E '^[0-9a-fA-F:]+$' | head -n 1 | awk '{print $1}')
@@ -186,9 +189,7 @@ EOF_HY2_YAML
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 【核心破局点】：强制拆分输出 3 条链接
         echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        echo "hy2://$PASSWORD@$IP:$PORT?sni=$DOMAIN#Hy2_强走IPv4高速版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
             echo "hy2://$PASSWORD@[${IP6}]:$PORT?sni=$DOMAIN#Hy2_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
@@ -245,9 +246,7 @@ EOF_TUIC_SERVICE
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         
-        # 【核心破局点】：强制拆分输出 3 条链接
         echo "tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_常规域名版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
-        echo "tuic://$UUID:$PASSWORD@$IP:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv4高速版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         if [ -n "$IP6" ]; then
             echo "tuic://$UUID:$PASSWORD@[${IP6}]:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_强走IPv6测试版_${GEO_TAG}" >> /etc/hy2_tuic/saved_links.txt
         fi
