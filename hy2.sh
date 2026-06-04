@@ -6,11 +6,10 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 铁律第一步：开局无脑直接创建核心目录，确保所有账本读写绝不踩空
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (GitHub 纯净版)"
+echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 (已移除慢速IPv4节点)"
 echo "=========================================================="
 echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
 echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
@@ -19,7 +18,6 @@ echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
-# 提取公共核心变量
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
@@ -29,7 +27,6 @@ if [ -z "$IP" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
   exit 1
 fi
 
-# 智能获取服务商与地理位置标签
 get_geo_tag() {
     local geo_info=$(curl -s --max-time 3 http://ip-api.com/json/)
     if [ -n "$geo_info" ] && echo "$geo_info" | grep -q '"status":"success"'; then
@@ -43,7 +40,6 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境与系统防火墙一键物理洗地
 init_env() {
     echo "正在优化内核 UDP 缓冲区..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
@@ -65,7 +61,6 @@ EOF_SYSCTL
     fi
 }
 
-# 部署专属快捷查询命令 sd
 deploy_shortcut() {
     cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
@@ -83,7 +78,6 @@ EOF_SHOW
     chmod +x /usr/local/bin/sd
 }
 
-# 智能域名锁定
 get_domain() {
     if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
         local cached_domain=$(cat /etc/hy2_tuic/vps_domain.txt)
@@ -114,7 +108,6 @@ get_domain() {
     done
 }
 
-# 全盘扫描本地官方配置，100% 榨出历史端口
 get_port() {
     local proto=$1
     local cache_file="/etc/hy2_tuic/vps_port_${proto}.txt"
@@ -145,7 +138,6 @@ get_port() {
     echo "$final_port"
 }
 
-# 智能防御型证书管理，绝不卡死
 sync_cert() {
     local target_dir=$1
     get_domain
