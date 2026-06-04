@@ -2,7 +2,7 @@
 
 # 检查是否为 Root 用户
 if [ "$EUID" -ne 0 ]; then
-  echo "错误：请使用 root 用户运行此脚本！"
+  echo "❌ 错误：请使用 root 用户运行此脚本！"
   exit 1
 fi
 
@@ -10,28 +10,35 @@ fi
 mkdir -p /etc/hy2_tuic
 
 echo "=========================================================="
-echo "    Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (GitHub 纯净版)"
+echo " Hysteria 2 & TUIC v5 纯血逻辑完全体 V8.6 (双栈 IPv4+IPv6 版)"
 echo "=========================================================="
-echo " 1. 安装 Hysteria 2 (全盘扫描端口 + 证书智能复用)"
-echo " 2. 安装 TUIC v5    (全盘扫描端口 + 证书智能复用)"
+echo " 1. 安装 Hysteria 2 (双栈支持 + 全盘扫描端口 + 证书智能复用)"
+echo " 2. 安装 TUIC v5    (双栈支持 + 全盘扫描端口 + 证书智能复用)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载服务并清空 VPS 环境"
 echo "=========================================================="
-read -p "请选择操作 [1-4]: " CHOICE
+read -p "👉 请选择操作 [1-4]: " CHOICE
 
-# 提取公共核心变量
-IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://ipinfo.io/ip || curl -sS4 https://api.ipify.org)
-PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
-UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
+# 双栈网络环境探测
+echo "🔍 正在探测网络环境..."
+IP4=$(curl -sS4 https://api.ipify.org --connect-timeout 3 2>/dev/null || curl -sS4 https://ifconfig.me --connect-timeout 3 2>/dev/null)
+IP6=$(curl -sS6 https://api64.ipify.org --connect-timeout 3 2>/dev/null || curl -sS6 https://ifconfig.co --connect-timeout 3 2>/dev/null)
 
-if [ -z "$IP" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
-  echo "❌ 错误：无法获取服务器公网 IP，请检查网络连接。"
+if [ -z "$IP4" ] && [ -z "$IP6" ] && [ "$CHOICE" -ne 4 ] && [ "$CHOICE" -ne 3 ]; then
+  echo "❌ 错误：无法获取服务器公网 IPv4 或 IPv6 地址，请检查网络连接。"
   exit 1
 fi
 
-# 智能获取服务商与地理位置标签
+[ -n "$IP4" ] && echo "✅ 探测到本机 IPv4: $IP4"
+[ -n "$IP6" ] && echo "✅ 探测到本机 IPv6: $IP6"
+
+PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "8e21e704-9ac8-4fb8-bef1-6c9d7d7e390b")
+
+# 智能获取服务商与地理位置标签 (优先使用 IPv4 测地理位置，API 兼容性好)
 get_geo_tag() {
-    local geo_info=$(curl -s --max-time 3 http://ip-api.com/json/)
+    local test_ip=${IP4:-$IP6}
+    local geo_info=$(curl -s --max-time 3 "http://ip-api.com/json/$test_ip")
     if [ -n "$geo_info" ] && echo "$geo_info" | grep -q '"status":"success"'; then
         local isp=$(echo "$geo_info" | grep -oE '"isp":"[^"]+"' | cut -d'"' -f4 | awk '{print $1}')
         local country=$(echo "$geo_info" | grep -oE '"country":"[^"]+"' | cut -d'"' -f4 | tr -d ' ')
@@ -43,20 +50,28 @@ get_geo_tag() {
     fi
 }
 
-# 核心环境与系统防火墙一键物理洗地
+# 核心环境与系统防火墙一键物理洗地 (支持双栈)
 init_env() {
-    echo "正在优化内核 UDP 缓冲区..."
+    echo "⚙️ 正在优化内核 UDP 缓冲区..."
     cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-connectivity-tuning.conf
 net.core.rmem_max=8388608
 net.core.wmem_max=8388608
 EOF_SYSCTL
     sysctl --system >/dev/null 2>&1
 
-    echo "正在物理清洗内部防火墙残留（全开接单状态）..."
+    echo "🛡️ 正在物理清洗内部防火墙残留（双栈全开接单状态）..."
     if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
     if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
+    
+    # 清洗 IPv4 规则
     iptables -F && iptables -X
     iptables -P INPUT ACCEPT && iptables -P FORWARD ACCEPT && iptables -P OUTPUT ACCEPT
+    
+    # 清洗 IPv6 规则
+    if command -v ip6tables > /dev/null; then
+        ip6tables -F && ip6tables -X
+        ip6tables -P INPUT ACCEPT && ip6tables -P FORWARD ACCEPT && ip6tables -P OUTPUT ACCEPT
+    fi
 
     if command -v apt-get >/dev/null; then
       apt-get update && apt-get install -y curl openssl wget iptables socat cron net-tools
@@ -72,7 +87,8 @@ deploy_shortcut() {
 if [ -f "/etc/hy2_tuic/saved_links.txt" ]; then
     clear
     echo "=========================================================="
-    echo "📋 当前 VPS 已保存的节点链接汇总 (Hy2 vs TUIC)"
+    echo " 📋 当前 VPS 已保存的节点链接汇总 (双栈通用版)"
+    echo "    (客户端将根据网络情况自动通过域名解析走 v4 或 v6)"
     echo "=========================================================="
     cat /etc/hy2_tuic/saved_links.txt
     echo "=========================================================="
@@ -83,7 +99,7 @@ EOF_SHOW
     chmod +x /usr/local/bin/sd
 }
 
-# 智能域名锁定
+# 智能域名锁定与双栈 A/AAAA 记录核对
 get_domain() {
     if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
         local cached_domain=$(cat /etc/hy2_tuic/vps_domain.txt)
@@ -99,16 +115,30 @@ get_domain() {
     while true; do
         read -p "👉 请输入您当前解析好的完整域名 (例如 us2.099889.xyz): " DOMAIN
         if [ -z "$DOMAIN" ]; then continue; fi
-        echo "🔄 正在请求多路公网 DNS 校验域名解析..."
-        local domain_ip=$(curl -s4 "https://1.1.1.1/dns-query?name=$DOMAIN" -H "accept: application/dns-json" | grep -oE '"data":"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"' | head -n 1 | awk -F'"' '{print $4}')
-        [ -z "$domain_ip" ] && domain_ip=$(getent ahosts "$DOMAIN" | awk '{print $1}' | head -n 1)
         
-        if [ "$domain_ip" = "$IP" ]; then
+        echo "🔄 正在校验域名的 DNS 解析记录 (检查 A 和 AAAA)..."
+        local domain_ip4=$(getent ahosts "$DOMAIN" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | awk '{print $1}')
+        local domain_ip6=$(getent ahosts "$DOMAIN" | grep -E '^[0-9a-fA-F:]+$' | head -n 1 | awk '{print $1}')
+        
+        local MATCHED=0
+        if [ -n "$IP4" ] && [ "$domain_ip4" == "$IP4" ]; then MATCHED=1; fi
+        if [ -n "$IP6" ] && [ "$domain_ip6" == "$IP6" ]; then MATCHED=1; fi
+        
+        if [ $MATCHED -eq 1 ]; then
             echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
-            echo "✅ 对账成功！域名 [$DOMAIN] 已精准绑定本机 IP ($IP)"
+            echo "✅ 对账成功！域名 [$DOMAIN] 的解析已精准命中本机 IP。"
+            [ -n "$domain_ip4" ] && echo "   - 命中 IPv4: $domain_ip4"
+            [ -n "$domain_ip6" ] && echo "   - 命中 IPv6: $domain_ip6"
             break
         else
-            echo "❌ 校验失败：当前域名解析出的 IP 为 [$domain_ip]，与本机 IP [$IP] 不符！"
+            echo "❌ 校验失败：域名解析记录与本机双栈 IP 均不匹配！"
+            echo "   [当前 VPS IP] v4: $IP4 | v6: $IP6"
+            echo "   [域名解析 IP] v4: $domain_ip4 | v6: $domain_ip6"
+            read -p "👉 是否确认解析已生效，并强行继续？[y/N]: " FORCE
+            if [[ "$FORCE" =~ ^[Yy]$ ]]; then
+                echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
+                break
+            fi
             echo "=========================================="
         fi
     done
@@ -167,9 +197,16 @@ sync_cert() {
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+    # 强制监听双栈获取证书
+    ~/.acme.sh/acme.sh --listen-v6 --issue -d "$DOMAIN" --standalone
     local issue_res=$?
     
+    if [ $issue_res -ne 0 ]; then
+        # 尝试去掉强制 v6 参数再试一次
+        ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+        issue_res=$?
+    fi
+
     if [ $issue_res -ne 0 ]; then
         if [ -d "/root/.acme.sh/${DOMAIN}_ecc" ] || [ -d "/root/.acme.sh/${DOMAIN}" ]; then
             echo "📋 侦测到本地签发历史中已存有合法合规证书文件，判定为缓存复用通车！"
@@ -184,7 +221,7 @@ sync_cert() {
         ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$target_dir/server.key" --fullchain-file "$target_dir/server.crt"
         echo "✅ 正规域名证书下发/复用成功！"
     else
-        echo "❌ 证书签发彻底失败，请检查 80 端口是否被物理占用！"
+        echo "❌ 证书签发彻底失败，请检查 80 端口是否被占用，以及域名解析是否真实生效！"
         exit 1
     fi
 }
@@ -197,6 +234,7 @@ case $CHOICE in
         bash <(curl -fsSL https://get.hy2.sh)
         sync_cert "/etc/hysteria"
         
+        # 写入 Hy2 配置（listen: :端口 默认自动绑定所有 IPv4 和 IPv6）
         cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -237,9 +275,10 @@ EOF_HY2_YAML
         wget -qO /usr/local/bin/tuic-server "https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}" || wget -qO /usr/local/bin/tuic-server "https://mirror.ghproxy.com/https://github.com/tuic-protocol/tuic/releases/download/tuic-server-1.0.0/tuic-server-1.0.0-${TUIC_ARCH}"
         chmod +x /usr/local/bin/tuic-server
 
+        # 写入 TUIC 配置 (修改为 [::]:$PORT 以确保纯 IPv6 或双栈同时接单)
         cat << EOF_TUIC_JSON > /etc/tuic/config.json
 {
-  "server": "0.0.0.0:$PORT",
+  "server": "[::]:$PORT",
   "users": {
     "$UUID": "$PASSWORD"
   },
