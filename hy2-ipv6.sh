@@ -6,13 +6,14 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-mkdir -p /etc/hy2_auto
+# 【核心重构】创建完全独立的隔离目录，防止未来被其他脚本覆盖
+mkdir -p /etc/hy2_ipv6_secure
 
 # 将密码生成提到最顶部
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 纯 IPv6 专属【暴风级速度压榨终极版】"
+echo "    Hysteria 2 纯 IPv6 专属【全隔离绝不冲突终极版】"
 echo "=========================================================="
 
 # 1. 定向到 /dev/tty，确保远程流式执行时也能强行拦截键盘输入
@@ -40,7 +41,6 @@ fi
 # 3. 系统底层内核与 UDP 缓冲区速度优化
 echo "[1/4] 正在注入高性能 UDP 调优参数并开启 BBR..."
 cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-hy2-performance.conf
-# 放大 Linux 系统内核的 UDP 接收和发送缓冲区上限，防止大流量下丢包
 net.core.rmem_max=33554432
 net.core.wmem_max=33554432
 net.core.rmem_default=16777216
@@ -72,31 +72,30 @@ fi
 
 # 4. 安全下载并安装 Hysteria 2 官方最新核心
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
-mkdir -p /etc/hysteria
-curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
-bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
-rm -f /etc/hy2_auto/install_hy2.sh
+curl -fsSL https://get.hy2.sh -o /etc/hy2_ipv6_secure/install_hy2.sh
+bash /etc/hy2_ipv6_secure/install_hy2.sh </dev/null >/dev/null 2>&1
+rm -f /etc/hy2_ipv6_secure/install_hy2.sh
 
 # 5. TLS 证书与加速服务配置
 echo "[3/4] 正在配置 TLS 证书与暴风级加速参数..."
 
 if [ -z "$DOMAIN" ]; then
-    openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
+    openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hy2_ipv6_secure/server.key -out /etc/hy2_ipv6_secure/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
     SNI_PARAM="?sni=Anonymity&insecure=1"
 else
     curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
+    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hy2_ipv6_secure/server.key" --fullchain-file "/etc/hy2_ipv6_secure/server.crt"
     SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 【核心速度注入】在 config.yaml 中无缝嵌入放大了数倍的 quic 接收窗口与并发流参数
-cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
+# 写入隔离路径下的 config.yaml
+cat << EOF_HY2_YAML > /etc/hy2_ipv6_secure/config.yaml
 listen: ":$PORT"
 tls:
-  cert: "/etc/hysteria/server.crt"
-  key: /etc/hysteria/server.key
+  cert: "/etc/hy2_ipv6_secure/server.crt"
+  key: "/etc/hy2_ipv6_secure/server.key"
 auth:
   type: "password"
   password: "$PASSWORD"
@@ -108,27 +107,46 @@ quic:
   maxIncomingStreams: 1024
 EOF_HY2_YAML
 
-chown -R hysteria:hysteria /etc/hysteria
-chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
-systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server >/dev/null 2>&1
+chmod 644 /etc/hy2_ipv6_secure/server.crt; chmod 600 /etc/hy2_ipv6_secure/server.key
+
+# 【严谨核心】创建完全独立的全新 Systemd 服务，名字换掉，彻底摆脱旧服务依赖
+cat << 'EOF_SERVICE' > /etc/systemd/system/hy2-v6-custom.service
+[Unit]
+Description=Hysteria 2 Custom Pure IPv6 Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/hy2_ipv6_secure
+ExecStart=/usr/local/bin/hysteria server --config /etc/hy2_ipv6_secure/config.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
+
+systemctl daemon-reload
+systemctl enable hy2-v6-custom && systemctl restart hy2-v6-custom >/dev/null 2>&1
 
 # 6. 精准拼接纯 IPv6 节点链接
-rm -f /etc/hy2_auto/links.txt
+rm -f /etc/hy2_ipv6_secure/links.txt
 
 if [ -n "$DOMAIN" ]; then
-    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_v6_域名加速版" >> /etc/hy2_auto/links.txt
+    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_v6_隔离专属版" >> /etc/hy2_ipv6_secure/links.txt
 else
-    echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
+    echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_隔离专属版" >> /etc/hy2_ipv6_secure/links.txt
 fi
 
 # 生成快捷查看命令 sd
 cat << 'EOF_SHOW' > /usr/local/bin/sd
 #!/bin/bash
-if [ -f "/etc/hy2_auto/links.txt" ]; then
+if [ -f "/etc/hy2_ipv6_secure/links.txt" ]; then
     echo "=========================================================="
-    echo "📋 当前纯 IPv6 高带宽调优节点链接："
+    echo "📋 当前纯 IPv6 高隔离高带宽节点链接："
     echo "=========================================================="
-    cat /etc/hy2_auto/links.txt
+    cat /etc/hy2_ipv6_secure/links.txt
     echo "=========================================================="
 else
     echo "❌ 未找到节点配置信息！"
@@ -139,10 +157,10 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 满血超频节点部署完成！请复制链接导入 V2rayN："
+echo "🎉 Hysteria 2 纯 IPv6 隔离专属节点部署完成！请复制导入："
 echo "=========================================================="
-if [ -s "/etc/hy2_auto/links.txt" ]; then
-    cat /etc/hy2_auto/links.txt
+if [ -s "/etc/hy2_ipv6_secure/links.txt" ]; then
+    cat /etc/hy2_ipv6_secure/links.txt
 else
     echo "❌ 节点链接生成失败，请检查 VPS 的 IPv6 配置。"
 fi
