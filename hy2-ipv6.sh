@@ -12,15 +12,17 @@ mkdir -p /etc/hy2_auto
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 纯 IPv6 高性能部署脚本 (严谨交互修正版)"
+echo "    Hysteria 2 纯 IPv6 高性能部署脚本 (强行读取终端流版)"
 echo "=========================================================="
 
-# 1. 【恢复交互】询问端口与域名
+# 1. 【核心修复】定向到 /dev/tty，确保远程流式执行时也能强行拦截键盘输入
 default_port=$(shuf -i 10000-60000 -n 1)
-read -p "👉 请输入节点监听端口 (直接回车随机使用 $default_port): " INPUT_PORT
+printf "👉 请输入节点监听端口 (直接回车随机使用 %s): " "$default_port"
+read -r INPUT_PORT < /dev/tty
 PORT="${INPUT_PORT:-$default_port}"
 
-read -p "👉 请输入解析好的域名 (若建纯IPv6 IP节点，请直接回车跳过): " DOMAIN
+printf "👉 请输入解析好的域名 (若建纯IPv6 IP节点，请直接回车跳过): "
+read -r DOMAIN < /dev/tty
 echo "=========================================================="
 
 # 2. 精准获取公网 IPv6 地址
@@ -74,11 +76,10 @@ curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. 【严谨分流】证书签发与 YAML 写入逻辑，彻底断绝留空可能
+# 5. 【严谨分流】证书签发与 YAML 写入逻辑
 echo "[3/4] 正在配置 TLS 证书与加速服务..."
 
 if [ -z "$DOMAIN" ]; then
-    # 情况 A：没有域名，生成自签名证书，使用标准的 Anonymity 字符串兜底
     openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
     SNI_PARAM="?sni=Anonymity&insecure=1"
     
@@ -86,14 +87,13 @@ if [ -z "$DOMAIN" ]; then
 listen: ":$PORT"
 tls:
   cert: "/etc/hysteria/server.crt"
-  key: /etc/hysteria/server.key
+  key: "/etc/hysteria/server.key"
 auth:
   type: "password"
   password: "$PASSWORD"
 EOF_HY2_YAML
 
 else
-    # 情况 B：有域名，通过 acme.sh 申请正规证书
     curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
@@ -126,7 +126,7 @@ fi
 
 # 生成快捷查看命令 sd
 cat << 'EOF_SHOW' > /usr/local/bin/sd
-#!/bash
+#!/bin/bash
 if [ -f "/etc/hy2_auto/links.txt" ]; then
     echo "=========================================================="
     echo "📋 当前纯 IPv6 高带宽调优节点链接："
