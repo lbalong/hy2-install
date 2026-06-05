@@ -9,7 +9,7 @@ fi
 mkdir -p /etc/hy2_auto
 
 echo "=========================================================="
-echo "    Hysteria 2 高性能分流版（V2rayN 完美兼容适配）"
+echo "    Hysteria 2 高性能分流版（完美恢复兼容链接格式）"
 echo "=========================================================="
 echo " 1. 仅部署【纯 IPv6】高性能节点"
 echo " 2. 仅部署【纯 IPv4】高性能节点"
@@ -103,14 +103,13 @@ bash <(curl -fsSL https://get.hy2.sh)
 echo "[3/4] 正在配置 TLS 证书与加速服务..."
 if [ -z "$DOMAIN" ]; then
     openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
-    # V2rayN 特殊适配参数
-    V2RAYN_PARAM="?sni=Anonymity&allowInsecure=true"
+    SNI_PARAM="?sni=Anonymity&insecure=1"
 else
     curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
-    V2RAYN_PARAM="?sni=$DOMAIN"
+    SNI_PARAM="?sni=$DOMAIN"
 fi
 
 cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
@@ -127,19 +126,19 @@ chown -R hysteria:hysteria /etc/hysteria
 chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
 systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server >/dev/null 2>&1
 
-# 6. 【核心修复】精准拼接 V2rayN 完美识别的链接格式
+# 6. 【精准回滚】使用之前能成功导入 V2rayN 的原生格式生成链接
 rm -f /etc/hy2_auto/links.txt
 
 if [ -n "$DOMAIN" ]; then
-    echo "hy2://$PASSWORD@$DOMAIN:$PORT$V2RAYN_PARAM#Hy2_域名加速版" >> /etc/hy2_auto/links.txt
+    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_域名加速版" >> /etc/hy2_auto/links.txt
 else
     if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT$V2RAYN_PARAM#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
+        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
     elif [ "$CHOICE" -eq 2 ] && [ -n "$IP4" ]; then
-        echo "hy2://$PASSWORD@$IP4:$PORT$V2RAYN_PARAM#Hy2_纯IPv4_加速版" >> /etc/hy2_auto/links.txt
+        echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_纯IPv4_加速版" >> /etc/hy2_auto/links.txt
     elif [ "$CHOICE" -eq 3 ]; then
-        [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$V2RAYN_PARAM#Hy2_双栈IPv6_加速版" >> /etc/hy2_auto/links.txt
-        [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$V2RAYN_PARAM#Hy2_双栈IPv4_加速版" >> /etc/hy2_auto/links.txt
+        [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_双栈IPv6_加速版" >> /etc/hy2_auto/links.txt
+        [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_双栈IPv4_加速版" >> /etc/hy2_auto/links.txt
     fi
 fi
 
@@ -161,7 +160,7 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo -e "\033[32m🎉 Hysteria 2 节点适配完成！链接如下（已针对 V2rayN 优化）：\033[0m"
+echo -e "\033[32m🎉 Hysteria 2 节点加速部署完成！格式已回滚，直接复制导入即可：\033[0m"
 echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
