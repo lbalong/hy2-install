@@ -70,7 +70,7 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 【硬核写死保底】直接去官方 Release 下载绝对存在的稳定版本核心，断绝 API 留空隐患
+# 4. 【核心重构：IPv6 专线下签机制】多源轮询，打通纯 IPv6 机器到 GitHub 的物理断网限制
 echo "[2/4] 正在隔离下载官方 Hysteria v2.6.0 核心组件..."
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
@@ -81,17 +81,42 @@ else
     URL_ARCH="linux-amd64"
 fi
 
-# 采用官方直链保底下载
-wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://github.com/apernet/hysteria/releases/download/v2.6.0/hysteria-${URL_ARCH}"
-if [ ! -s "/etc/hy2_ipv6_secure/hy2-v6-core" ]; then
-    # 镜像站双重保底
-    wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://ghfast.top/https://github.com/apernet/hysteria/releases/download/v2.6.0/hysteria-${URL_ARCH}"
+# 定义三个不同的下载通道，专门兼容纯 IPv6 环境
+DOWNLOAD_SUCCESS=false
+
+# 通道 1：ghproxy 纯 IPv6 支持源
+echo "  -> 尝试通过通道 A 下载..."
+wget -q --timeout=15 --tries=2 -O /etc/hy2_ipv6_secure/hy2-v6-core "https://mirror.ghproxy.com/https://github.com/apernet/hysteria/releases/download/v2.6.0/hysteria-${URL_ARCH}"
+
+FILE_SIZE=$(wc -c </etc/hy2_ipv6_secure/hy2-v6-core 2>/dev/null || echo 0)
+if [ "$FILE_SIZE" -gt 1048576 ]; then
+    DOWNLOAD_SUCCESS=true
 fi
 
-# 严格校验下载文件大小，如果低于 1MB 说明没下载成功，直接抛出错误不致使后续致盲
-FILE_SIZE=$(wc -c </etc/hy2_ipv6_secure/hy2-v6-core)
-if [ "$FILE_SIZE" -lt 1048576 ]; then
-    echo "❌ 错误：核心文件下载失败或被截断，请检查 VPS 与 GitHub 的网络连接！"
+# 通道 2：ghfast 双栈备份源
+if [ "$DOWNLOAD_SUCCESS" = false ]; then
+    echo "  -> 通道 A 失败，尝试通过通道 B 下载..."
+    wget -q --timeout=15 --tries=2 -O /etc/hy2_ipv6_secure/hy2-v6-core "https://ghfast.top/https://github.com/apernet/hysteria/releases/download/v2.6.0/hysteria-${URL_ARCH}"
+    FILE_SIZE=$(wc -c </etc/hy2_ipv6_secure/hy2-v6-core 2>/dev/null || echo 0)
+    if [ "$FILE_SIZE" -gt 1048576 ]; then
+        DOWNLOAD_SUCCESS=true
+    fi
+fi
+
+# 通道 3：官方直链（最后的倔强，虽然大概率IPv6会超时，但做兜底）
+if [ "$DOWNLOAD_SUCCESS" = false ]; then
+    echo "  -> 通道 B 失败，尝试通过官方直链下载..."
+    wget -q --timeout=15 --tries=2 -O /etc/hy2_ipv6_secure/hy2-v6-core "https://github.com/apernet/hysteria/releases/download/v2.6.0/hysteria-${URL_ARCH}"
+    FILE_SIZE=$(wc -c </etc/hy2_ipv6_secure/hy2-v6-core 2>/dev/null || echo 0)
+    if [ "$FILE_SIZE" -gt 1048576 ]; then
+        DOWNLOAD_SUCCESS=true
+    fi
+fi
+
+# 最终大小严格终审
+if [ "$DOWNLOAD_SUCCESS" = false ]; then
+    echo "❌ 错误：核心文件在纯 IPv6 环境下通过所有备份通道均下载失败！"
+    echo "💡 提示：这说明您的 VPS 完全屏蔽了海外网络连接，或者本地代理源全部抽风。"
     exit 1
 fi
 
@@ -111,8 +136,8 @@ else
     SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 【灵魂修正】listen 严格死锁 [::]:端口，实现纯 IPv6 的绝对独立监听，彻底跟 IPv4 划清界限
-cat << EOF_HY2_YAML > /etc/hy2_ipv6_secure/config.yaml
+# listen 严格死锁 [::]:端口，实现纯 IPv6 的绝对独立监听
+cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: "[::]:$PORT"
 tls:
   cert: "/etc/hy2_ipv6_secure/server.crt"
@@ -140,7 +165,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/etc/hy2_ipv6_secure
-ExecStart=/etc/hy2_ipv6_secure/hy2-v6-core server --config /etc/hy2_ipv6_secure/config.yaml
+ExecStart=/etc/hy2_ipv6_secure/hy2-v6-core server --config /etc/hysteria/config.yaml
 Restart=always
 RestartSec=5
 
