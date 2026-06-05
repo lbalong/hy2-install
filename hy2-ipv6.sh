@@ -109,20 +109,22 @@ curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. 【修复核心关联】证书生成与权限下放
+# 5. 【严谨关联性修复】恢复全 root 权限生态，确保特权端口（443）绑定与证书读取链完美闭环
 echo "[3/4] 正在配置 TLS 证书与加速服务..."
 if [ -z "$DOMAIN" ]; then
+    # 路径修改点 1：自签名证书安全生成到隔离区
     openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hy2_v6_isolated/server.key -out /etc/hy2_v6_isolated/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
     SNI_PARAM="?sni=Anonymity&insecure=1"
 else
     curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+    # 路径修改点 2：正规证书无缝关联安装到隔离区
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hy2_v6_isolated/server.key" --fullchain-file "/etc/hy2_v6_isolated/server.crt"
     SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 写入隔离配置文件并追加暴风级速度优化
+# 路径修改点 3：配置文件写入隔离区，内部证书引用关系完全对应
 cat << EOF_HY2_YAML > /etc/hy2_v6_isolated/config.yaml
 listen: :$PORT
 tls:
@@ -139,13 +141,12 @@ quic:
   maxIncomingStreams: 1024
 EOF_HY2_YAML
 
-# 🔥【此版灵魂注入】：强行把新路径的所属权赐予 hysteria 用户和组，彻底打通前后关联性死结！
-chown -R hysteria:hysteria /etc/hy2_v6_isolated
-chmod 755 /etc/hy2_v6_isolated
+# 保持最高规格的 Root 安全权限，允许特权端口调用
+chmod 700 /etc/hy2_v6_isolated
 chmod 644 /etc/hy2_v6_isolated/server.crt
 chmod 600 /etc/hy2_v6_isolated/server.key
 
-# 定制完全独立的、使用官方 hysteria 用户降权执行的安全 Systemd 服务
+# 路径修改点 4：定制使用 Root 权限独立启动的全新 Systemd 服务，确保 443 端口绝对不闪退
 cat << 'EOF_SERVICE' > /etc/systemd/system/hy2-v6-custom.service
 [Unit]
 Description=Hysteria 2 Pure IPv6 Custom Isolated Service
@@ -153,8 +154,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=hysteria
-Group=hysteria
+User=root
 WorkingDirectory=/etc/hy2_v6_isolated
 ExecStart=/usr/local/bin/hysteria server --config /etc/hy2_v6_isolated/config.yaml
 Restart=always
@@ -174,7 +174,7 @@ if [ -n "$DOMAIN" ]; then
     echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_域名加速版" >> /etc/hy2_auto/links.txt
 else
     if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_高隔离版" >> /etc/hy2_auto/links.txt
+        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_路径隔离版" >> /etc/hy2_auto/links.txt
     elif [ "$CHOICE" -eq 2 ] && [ -n "$IP4" ]; then
         echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_纯IPv4_防冲突版" >> /etc/hy2_auto/links.txt
     elif [ "$CHOICE" -eq 3 ]; then
