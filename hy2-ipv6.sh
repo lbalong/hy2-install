@@ -64,16 +64,14 @@ if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>
 iptables -F && iptables -X && iptables -P INPUT ACCEPT
 if command -v ip6tables > /dev/null; then ip6tables -F && ip6tables -X && ip6tables -P INPUT ACCEPT; fi
 
-# 安装基础解压工具
 if command -v apt-get >/dev/null; then
-  apt-get update -y >/dev/null 2>&1 && apt-get install -y curl openssl wget tar >/dev/null 2>&1
+  apt-get update -y >/dev/null 2>&1 && apt-get install -y curl openssl wget >/dev/null 2>&1
 elif command -v yum >/dev/null; then
-  yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget tar >/dev/null 2>&1
+  yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 【彻底根治】跳过官方流氓安装脚本，直接精准抓取官方纯净编译二进制文件
-echo "[2/4] 正在真空下载官方 Hysteria 2 核心组件..."
-# 自动识别系统架构（支持 x86_64 和 arm64）
+# 4. 【严谨修正】直接下载官方编译好的单二进制文件，拒绝混淆
+echo "[2/4] 正在隔离下载官方 Hysteria 2 核心组件..."
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
     URL_ARCH="linux-amd64"
@@ -83,14 +81,15 @@ else
     URL_ARCH="linux-amd64"
 fi
 
-# 获取官方最新版本号并直接静默下载解压到隔离目录，改名为 hy2-v6-core
 HY2_VER=$(curl -s https://api.github.com/repos/apernet/hysteria/releases/latest | grep -oP '"tag_name": "\K[^"]+')
-wget -q -O /etc/hy2_ipv6_secure/hy2.tar.gz "https://github.com/apernet/hysteria/releases/download/${HY2_VER}/hysteria-${URL_ARCH}"
-if [ ! -s "/etc/hy2_ipv6_secure/hy2.tar.gz" ]; then
-    # 备用镜像源（防止 GitHub 访问抽风）
-    wget -q -O /etc/hy2_ipv6_secure/hy2.tar.gz "https://ghfast.top/https://github.com/apernet/hysteria/releases/download/${HY2_VER}/hysteria-${URL_ARCH}"
+
+# 直接将其下载为独立核心程序 hy2-v6-core，不再进行错误的 tar 解压
+wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://github.com/apernet/hysteria/releases/download/${HY2_VER}/hysteria-${URL_ARCH}"
+if [ ! -s "/etc/hy2_ipv6_secure/hy2-v6-core" ]; then
+    # 备用加速镜像源
+    wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://ghfast.top/https://github.com/apernet/hysteria/releases/download/${HY2_VER}/hysteria-${URL_ARCH}"
 fi
-mv /etc/hy2_ipv6_secure/hy2.tar.gz /etc/hy2_ipv6_secure/hy2-v6-core
+
 chmod +x /etc/hy2_ipv6_secure/hy2-v6-core
 
 # 5. TLS 证书与加速服务配置
@@ -126,7 +125,7 @@ EOF_HY2_YAML
 
 chmod 644 /etc/hy2_ipv6_secure/server.crt; chmod 600 /etc/hy2_ipv6_secure/server.key
 
-# 创建完全脱离官方控制的全新真空 Systemd 服务
+# 创建完全脱离官方控制的全新隔离 Systemd 服务
 cat << 'EOF_SERVICE' > /etc/systemd/system/hy2-v6-custom.service
 [Unit]
 Description=Hysteria 2 Vacuum Isolated Pure IPv6 Service
@@ -174,11 +173,9 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 纯 IPv6 隔离专属节点部署完成！请复制导入："
+echo "🎉 Hysteria 2 纯 IPv6 隔离专属节点部署完成！请复制链接导入 V2rayN："
 echo "=========================================================="
-if [ -s "/etc/hy2_auto/links.txt" ]; then
-    cat /etc/hy2_auto/links.txt
-elif [ -s "/etc/hy2_ipv6_secure/links.txt" ]; then
+if [ -s "/etc/hy2_ipv6_secure/links.txt" ]; then
     cat /etc/hy2_ipv6_secure/links.txt
 else
     echo "❌ 节点链接生成失败，请检查 VPS 的 IPv6 配置。"
