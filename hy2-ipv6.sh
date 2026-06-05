@@ -8,12 +8,19 @@ fi
 
 mkdir -p /etc/hy2_auto
 
-# 1. 【严谨闭环】全自动生成核心变量，彻底断绝因交互引起的 YAML 留空崩溃
-PORT=$(shuf -i 10000-60000 -n 1)
+# 将密码生成提到最顶部
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 纯 IPv6 专属高性能极速部署脚本 (全自动防崩版)"
+echo "    Hysteria 2 纯 IPv6 高性能部署脚本 (严谨交互修正版)"
+echo "=========================================================="
+
+# 1. 【恢复交互】询问端口与域名
+default_port=$(shuf -i 10000-60000 -n 1)
+read -p "👉 请输入节点监听端口 (直接回车随机使用 $default_port): " INPUT_PORT
+PORT="${INPUT_PORT:-$default_port}"
+
+read -p "👉 请输入解析好的域名 (若建纯IPv6 IP节点，请直接回车跳过): " DOMAIN
 echo "=========================================================="
 
 # 2. 精准获取公网 IPv6 地址
@@ -60,27 +67,49 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 安全下载并安装 Hysteria 2 官方最新核心（规避流冲突）
+# 4. 安全下载并安装 Hysteria 2 官方最新核心
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
 mkdir -p /etc/hysteria
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. TLS 证书与加速服务配置
-echo "[3/4] 正在配置自签名 TLS 证书与加速服务..."
-openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
+# 5. 【严谨分流】证书签发与 YAML 写入逻辑，彻底断绝留空可能
+echo "[3/4] 正在配置 TLS 证书与加速服务..."
 
-# 【严格校对】使用带双引号包裹的明确字符串，彻底根治 YAML 解析器敏感度故障
-cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
+if [ -z "$DOMAIN" ]; then
+    # 情况 A：没有域名，生成自签名证书，使用标准的 Anonymity 字符串兜底
+    openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
+    SNI_PARAM="?sni=Anonymity&insecure=1"
+    
+    cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: ":$PORT"
 tls:
   cert: "/etc/hysteria/server.crt"
-  key: "/etc/hysteria/server.key"
+  key: /etc/hysteria/server.key
 auth:
   type: "password"
   password: "$PASSWORD"
 EOF_HY2_YAML
+
+else
+    # 情况 B：有域名，通过 acme.sh 申请正规证书
+    curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
+    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
+    SNI_PARAM="?sni=$DOMAIN"
+
+    cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
+listen: ":$PORT"
+tls:
+  cert: "/etc/hysteria/server.crt"
+  key: /etc/hysteria/server.key
+auth:
+  type: "password"
+  password: "$PASSWORD"
+EOF_HY2_YAML
+fi
 
 chown -R hysteria:hysteria /etc/hysteria
 chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
@@ -88,11 +117,16 @@ systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart
 
 # 6. 精准拼接纯 IPv6 节点链接
 rm -f /etc/hy2_auto/links.txt
-echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=Anonymity&insecure=1#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
+
+if [ -n "$DOMAIN" ]; then
+    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_v6_域名加速版" >> /etc/hy2_auto/links.txt
+else
+    echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
+fi
 
 # 生成快捷查看命令 sd
 cat << 'EOF_SHOW' > /usr/local/bin/sd
-#!/bin/bash
+#!/bash
 if [ -f "/etc/hy2_auto/links.txt" ]; then
     echo "=========================================================="
     echo "📋 当前纯 IPv6 高带宽调优节点链接："
