@@ -12,7 +12,7 @@ mkdir -p /etc/hy2_auto
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 纯 IPv6 专属高性能极速部署脚本"
+echo "    Hysteria 2 纯 IPv6 专属高性能极速部署脚本 (修复版)"
 echo "=========================================================="
 
 # 1. 交互询问：端口与域名
@@ -23,7 +23,7 @@ PORT="${INPUT_PORT:-$default_port}"
 read -p "👉 请输入解析好的域名 (若建纯IPv6 IP节点，请直接回车跳过): " DOMAIN
 echo "=========================================================="
 
-# 2. 精准获取公网 IPv6 地址（完全剔除 IPv4）
+# 2. 精准获取公网 IPv6 地址
 echo "🔍 正在精准抓取公网 IPv6 地址..."
 IP6=$(curl -sS6 --max-time 4 https://api64.ipify.org || curl -sS6 --max-time 4 https://ident.me)
 if [ -z "$IP6" ]; then
@@ -87,9 +87,9 @@ else
     SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 仅监听 IPv6 端口 [::] 确保单栈高效纯净转发
+# 【严谨修正】去掉导致服务崩溃的外部中括号，改用标准的裸字符监听格式
 cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
-listen: [::]:$PORT
+listen: :$PORT
 tls:
   cert: /etc/hysteria/server.crt
   key: /etc/hysteria/server.key
