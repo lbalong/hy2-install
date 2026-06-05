@@ -6,7 +6,7 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 【路径修改 1】创建完全属于此脚本节点的绝对隔离目录
+# 【严谨前置】创建完全属于此脚本节点的绝对隔离目录
 mkdir -p /etc/hy2_v6_isolated
 mkdir -p /etc/hy2_auto
 
@@ -103,28 +103,26 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 下载官方最新核心（保持原版安装机制，防止流截断报错）
+# 4. 下载官方最新核心（保持原版安装机制）
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. 【路径修改 2】证书生成、写入和 Systemd 托管路径全部跟默认隔离
+# 5. 【修复核心关联】证书生成与权限下放
 echo "[3/4] 正在配置 TLS 证书与加速服务..."
 if [ -z "$DOMAIN" ]; then
-    # 证书移入专属隔离目录
     openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hy2_v6_isolated/server.key -out /etc/hy2_v6_isolated/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
     SNI_PARAM="?sni=Anonymity&insecure=1"
 else
     curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-    # 正规证书同样安装入隔离专属目录
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hy2_v6_isolated/server.key" --fullchain-file "/etc/hy2_v6_isolated/server.crt"
     SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 【路径修改 3】配置文件生成在隔离目录中，内部关联对应的隔离证书，并直接注入暴风级 quic 加速参数
+# 写入隔离配置文件并追加暴风级速度优化
 cat << EOF_HY2_YAML > /etc/hy2_v6_isolated/config.yaml
 listen: :$PORT
 tls:
@@ -141,9 +139,13 @@ quic:
   maxIncomingStreams: 1024
 EOF_HY2_YAML
 
-chmod 644 /etc/hy2_v6_isolated/server.crt; chmod 600 /etc/hy2_v6_isolated/server.key
+# 🔥【此版灵魂注入】：强行把新路径的所属权赐予 hysteria 用户和组，彻底打通前后关联性死结！
+chown -R hysteria:hysteria /etc/hy2_v6_isolated
+chmod 755 /etc/hy2_v6_isolated
+chmod 644 /etc/hy2_v6_isolated/server.crt
+chmod 600 /etc/hy2_v6_isolated/server.key
 
-# 【路径修改 4】重新定制独立的 Systemd 服务（hy2-v6-custom），避免被官方默认服务覆盖停止
+# 定制完全独立的、使用官方 hysteria 用户降权执行的安全 Systemd 服务
 cat << 'EOF_SERVICE' > /etc/systemd/system/hy2-v6-custom.service
 [Unit]
 Description=Hysteria 2 Pure IPv6 Custom Isolated Service
@@ -151,7 +153,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=hysteria
+Group=hysteria
 WorkingDirectory=/etc/hy2_v6_isolated
 ExecStart=/usr/local/bin/hysteria server --config /etc/hy2_v6_isolated/config.yaml
 Restart=always
@@ -171,7 +174,7 @@ if [ -n "$DOMAIN" ]; then
     echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_域名加速版" >> /etc/hy2_auto/links.txt
 else
     if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_路径隔离版" >> /etc/hy2_auto/links.txt
+        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_高隔离版" >> /etc/hy2_auto/links.txt
     elif [ "$CHOICE" -eq 2 ] && [ -n "$IP4" ]; then
         echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_纯IPv4_防冲突版" >> /etc/hy2_auto/links.txt
     elif [ "$CHOICE" -eq 3 ]; then
