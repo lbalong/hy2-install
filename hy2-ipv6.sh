@@ -12,10 +12,10 @@ mkdir -p /etc/hy2_auto
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 纯 IPv6 高性能部署脚本 (强行读取终端流版)"
+echo "    Hysteria 2 纯 IPv6 专属【暴风级速度压榨终极版】"
 echo "=========================================================="
 
-# 1. 【核心修复】定向到 /dev/tty，确保远程流式执行时也能强行拦截键盘输入
+# 1. 定向到 /dev/tty，确保远程流式执行时也能强行拦截键盘输入
 default_port=$(shuf -i 10000-60000 -n 1)
 printf "👉 请输入节点监听端口 (直接回车随机使用 %s): " "$default_port"
 read -r INPUT_PORT < /dev/tty
@@ -37,9 +37,10 @@ if [ -z "$IP6" ]; then
     exit 1
 fi
 
-# 3. 系统内核与 UDP 缓冲区速度优化
+# 3. 系统底层内核与 UDP 缓冲区速度优化
 echo "[1/4] 正在注入高性能 UDP 调优参数并开启 BBR..."
 cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-hy2-performance.conf
+# 放大 Linux 系统内核的 UDP 接收和发送缓冲区上限，防止大流量下丢包
 net.core.rmem_max=33554432
 net.core.wmem_max=33554432
 net.core.rmem_default=16777216
@@ -50,14 +51,14 @@ net.ipv4.tcp_congestion_control=bbr
 EOF_SYSCTL
 sysctl --system >/dev/null 2>&1
 
-# 调整网卡队列长度消除高带宽丢包瓶颈
+# 调整物理网卡队列长度，消除网卡硬件层面的发送瓶颈
 for dev in /sys/class/net/*; do
     if [ -d "$dev" ]; then
         ifconfig $(basename "$dev") txqueuelen 5000 >/dev/null 2>&1
     fi
 done
 
-# 清理防火墙（确保原生放行 IPv6）
+# 清理防火墙（确保原生放行 IPv6 流量）
 if command -v ufw > /dev/null; then ufw disable >/dev/null 2>&1; fi
 if command -v systemctl > /dev/null; then systemctl stop firewalld >/dev/null 2>&1 && systemctl disable firewalld >/dev/null 2>&1; fi
 iptables -F && iptables -X && iptables -P INPUT ACCEPT
@@ -76,31 +77,22 @@ curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. 【严谨分流】证书签发与 YAML 写入逻辑
-echo "[3/4] 正在配置 TLS 证书与加速服务..."
+# 5. TLS 证书与加速服务配置
+echo "[3/4] 正在配置 TLS 证书与暴风级加速参数..."
 
 if [ -z "$DOMAIN" ]; then
     openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
     SNI_PARAM="?sni=Anonymity&insecure=1"
-    
-    cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
-listen: ":$PORT"
-tls:
-  cert: "/etc/hysteria/server.crt"
-  key: "/etc/hysteria/server.key"
-auth:
-  type: "password"
-  password: "$PASSWORD"
-EOF_HY2_YAML
-
 else
     curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
     ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
     ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
     ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
     SNI_PARAM="?sni=$DOMAIN"
+fi
 
-    cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
+# 【核心速度注入】在 config.yaml 中无缝嵌入放大了数倍的 quic 接收窗口与并发流参数
+cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: ":$PORT"
 tls:
   cert: "/etc/hysteria/server.crt"
@@ -108,8 +100,13 @@ tls:
 auth:
   type: "password"
   password: "$PASSWORD"
+quic:
+  initStreamReceiveWindow: 8388608
+  maxStreamReceiveWindow: 8388608
+  initConnectionReceiveWindow: 16777216
+  maxConnectionReceiveWindow: 16777216
+  maxIncomingStreams: 1024
 EOF_HY2_YAML
-fi
 
 chown -R hysteria:hysteria /etc/hysteria
 chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
@@ -142,7 +139,7 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 纯 IPv6 节点部署完成！请复制链接导入 V2rayN："
+echo "🎉 Hysteria 2 满血超频节点部署完成！请复制链接导入 V2rayN："
 echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
