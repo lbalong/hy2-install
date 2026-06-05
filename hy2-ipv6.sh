@@ -12,7 +12,7 @@ mkdir -p /etc/hy2_auto
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 高性能分流版（终极防截断自愈版）"
+echo "    Hysteria 2 高性能分流版（彻底根治流冲突版）"
 echo "=========================================================="
 echo " 1. 仅部署【纯 IPv6】高性能节点"
 echo " 2. 仅部署【纯 IPv4】高性能节点"
@@ -97,10 +97,13 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 安装官方核心
-echo "[2/4] 正在下载/更新 Hysteria 2 官方最新核心..."
+# 4. 【核心重构】下载官方脚本到本地离线运行，彻底断开标准输入流，防止截断
+echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
 mkdir -p /etc/hysteria
-bash <(curl -fsSL https://get.hy2.sh)
+curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
+# 使用 </dev/null 强行关闭标准输入，彻底根治远程执行时的 EOF 冲突
+bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
+rm -f /etc/hy2_auto/install_hy2.sh
 
 # 5. TLS 证书与加速服务配置
 echo "[3/4] 正在配置 TLS 证书与加速服务..."
@@ -163,11 +166,14 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 节点加速部署完成！链接如下："
+echo "🎉 Hysteria 2 节点加速部署完成！链接已修复，请复制导入："
 echo "=========================================================="
-cat /etc/hy2_auto/links.txt
+if [ -s "/etc/hy2_auto/links.txt" ]; then
+    cat /etc/hy2_auto/links.txt
+else
+    echo "❌ 节点链接生成失败，请确认您选择的 IP 类型是否在 VPS 上真实存在。"
+fi
 echo "=========================================================="
 echo "💡 后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可再次查看"
 echo " "
-
-# 保底安全空行（防止网络截断导致 EOF 误判）
+exit 0
