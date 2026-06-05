@@ -8,8 +8,11 @@ fi
 
 mkdir -p /etc/hy2_auto
 
+# 【严谨修正】将密码生成提到最顶部，确保任何菜单分支都能绝对获取到密码
+PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+
 echo "=========================================================="
-echo "    Hysteria 2 高性能分流版（完美恢复兼容链接格式）"
+echo "    Hysteria 2 高性能分流版（严谨密码修复版）"
 echo "=========================================================="
 echo " 1. 仅部署【纯 IPv6】高性能节点"
 echo " 2. 仅部署【纯 IPv4】高性能节点"
@@ -126,7 +129,7 @@ chown -R hysteria:hysteria /etc/hysteria
 chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
 systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server >/dev/null 2>&1
 
-# 6. 【精准回滚】使用之前能成功导入 V2rayN 的原生格式生成链接
+# 6. 精准拼接有效格式链接
 rm -f /etc/hy2_auto/links.txt
 
 if [ -n "$DOMAIN" ]; then
@@ -160,7 +163,7 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo -e "\033[32m🎉 Hysteria 2 节点加速部署完成！格式已回滚，直接复制导入即可：\033[0m"
+echo -e "\033[32m🎉 Hysteria 2 节点加速部署完成！链接已修复，请复制导入：\033[0m"
 echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
@@ -168,5 +171,4 @@ else
     echo "❌ 节点链接生成失败，请确认您选择的 IP 类型是否在 VPS 上真实存在。"
 fi
 echo "=========================================================="
-echo -e "💡 \033[33m后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可再次查看\033[0m"
-echo " "
+echo -e "💡 \033[33m后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可再次查看\033
