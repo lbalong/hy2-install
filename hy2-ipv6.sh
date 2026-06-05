@@ -13,7 +13,7 @@ mkdir -p /etc/hy2_ipv6_secure
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 纯 IPv6 专属【真空全隔离绝不冲突版】"
+echo "    Hysteria 2 纯 IPv6 专属【真空全隔离绝不冲突终极版】"
 echo "=========================================================="
 
 # 1. 定向到 /dev/tty，确保远程流式执行时也能强行拦截键盘输入
@@ -70,8 +70,8 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 【严谨修正】直接下载官方编译好的单二进制文件，拒绝混淆
-echo "[2/4] 正在隔离下载官方 Hysteria 2 核心组件..."
+# 4. 【硬核写死保底】直接去官方 Release 下载绝对存在的稳定版本核心，断绝 API 留空隐患
+echo "[2/4] 正在隔离下载官方 Hysteria v2.6.0 核心组件..."
 ARCH=$(uname -m)
 if [ "$ARCH" = "x86_64" ]; then
     URL_ARCH="linux-amd64"
@@ -81,13 +81,18 @@ else
     URL_ARCH="linux-amd64"
 fi
 
-HY2_VER=$(curl -s https://api.github.com/repos/apernet/hysteria/releases/latest | grep -oP '"tag_name": "\K[^"]+')
-
-# 直接将其下载为独立核心程序 hy2-v6-core，不再进行错误的 tar 解压
-wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://github.com/apernet/hysteria/releases/download/${HY2_VER}/hysteria-${URL_ARCH}"
+# 采用官方直链保底下载
+wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://github.com/apernet/hysteria/releases/download/v2.6.0/hysteria-${URL_ARCH}"
 if [ ! -s "/etc/hy2_ipv6_secure/hy2-v6-core" ]; then
-    # 备用加速镜像源
-    wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://ghfast.top/https://github.com/apernet/hysteria/releases/download/${HY2_VER}/hysteria-${URL_ARCH}"
+    # 镜像站双重保底
+    wget -q -O /etc/hy2_ipv6_secure/hy2-v6-core "https://ghfast.top/https://github.com/apernet/hysteria/releases/download/v2.6.0/hysteria-${URL_ARCH}"
+fi
+
+# 严格校验下载文件大小，如果低于 1MB 说明没下载成功，直接抛出错误不致使后续致盲
+FILE_SIZE=$(wc -c </etc/hy2_ipv6_secure/hy2-v6-core)
+if [ "$FILE_SIZE" -lt 1048576 ]; then
+    echo "❌ 错误：核心文件下载失败或被截断，请检查 VPS 与 GitHub 的网络连接！"
+    exit 1
 fi
 
 chmod +x /etc/hy2_ipv6_secure/hy2-v6-core
@@ -106,9 +111,9 @@ else
     SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 写入绝对隔离的专属配置文件
+# 【灵魂修正】listen 严格死锁 [::]:端口，实现纯 IPv6 的绝对独立监听，彻底跟 IPv4 划清界限
 cat << EOF_HY2_YAML > /etc/hy2_ipv6_secure/config.yaml
-listen: ":$PORT"
+listen: "[::]:$PORT"
 tls:
   cert: "/etc/hy2_ipv6_secure/server.crt"
   key: "/etc/hy2_ipv6_secure/server.key"
