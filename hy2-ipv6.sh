@@ -25,9 +25,10 @@ fi
 EXISTING_PORT=""
 EXISTING_PASSWORD=""
 if [ -f "/etc/hysteria/config.yaml" ]; then
-    EXISTING_PORT=$(grep -E '^\s*listen:' /etc/hysteria/config.yaml | awk -F ':' '{print $NF}')
+    EXISTING_PORT=$(grep -E '^\s*listen:' /etc/hysteria/config.yaml | head -n 1 | awk -F ':' '{print $NF}')
     EXISTING_PORT=$(echo "$EXISTING_PORT" | tr -dc '0-9')
-    EXISTING_PASSWORD=$(grep -E '^\s*password:' /etc/hysteria/config.yaml | awk '{print $NF}' | tr -d '[:space:]"')
+    # 限制 head -n 1，防止提取到 obfs 模块里的第二个 password 导致密码成倍叠加
+    EXISTING_PASSWORD=$(grep -E '^\s*password:' /etc/hysteria/config.yaml | head -n 1 | awk '{print $NF}' | tr -d '[:space:]"')
 fi
 
 # 如果有旧密码则沿用，否则生成新密码
@@ -113,7 +114,7 @@ elif [ "$CHOICE" -eq 3 ]; then
     DEPLOYED_IPV6="true"
 fi
 
-# 2. 根据合并后的状态获取公网 IP 地址 (改用最稳健的 awk 提取)
+# 2. 根据合并后的状态获取公网 IP 地址 (基于 awk + cut 提取)
 IP4=""
 IP6=""
 
@@ -197,7 +198,7 @@ fi
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 if [ ! -f "/etc/hy2_auto/install_hy2.sh" ]; then
-    echo "❌ 错误：未能从官方源下载安装脚本，请检查 VPS 的网络连接！"
+    echo "❌ 错误：未能从官方源下载安装脚本，请检查 VPS 的 network 连接！"
     exit 1
 fi
 if ! bash /etc/hy2_auto/install_hy2.sh </dev/null >/etc/hy2_auto/install.log 2>&1; then
@@ -281,27 +282,32 @@ echo "✅ Hysteria 2 服务启动成功，目前正在后台正常运行。"
 # 6. 精准拼接有效格式链接 (附加混淆参数)
 rm -f /etc/hy2_auto/links.txt
 
-# 无论是否有域名，双栈都输出两个独立的节点链接 (IPv4 和 IPv6)
-# 如果有域名，连接的主机为 IP，但 SNI 设为域名，这既能强制路由又能通过 TLS 证书校验，且不需要 insecure=1
-if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
-    if [ -n "$DOMAIN" ]; then
-        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv4_域名版" >> /etc/hy2_auto/links.txt
-    else
-        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_混淆版" >> /etc/hy2_auto/links.txt
-    fi
-fi
-
-if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
-    if [ -n "$DOMAIN" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv6_域名版" >> /etc/hy2_auto/links.txt
-    else
-        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_混淆版" >> /etc/hy2_auto/links.txt
-    fi
-fi
-
-# 如果配置了域名，额外输出一个直连域名的双栈链接
+# 如果配置了域名，输出真正的域名直连节点，并提供 IP 直连但通过域名 TLS 验证的辅助节点
 if [ -n "$DOMAIN" ]; then
-    echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名直连双栈版" >> /etc/hy2_auto/links.txt
+    # 1. 输出域名直连节点（主机名为域名，由客户端自动解析双栈或单栈）
+    if [ "$DEPLOYED_IPV4" = "true" ] && [ "$DEPLOYED_IPV6" = "true" ]; then
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名双栈_自动选择" >> /etc/hy2_auto/links.txt
+    elif [ "$DEPLOYED_IPV6" = "true" ]; then
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv6" >> /etc/hy2_auto/links.txt
+    elif [ "$DEPLOYED_IPV4" = "true" ]; then
+        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv4" >> /etc/hy2_auto/links.txt
+    fi
+
+    # 2. 输出 IP 直连域名验证节点（主机名为 IP，TLS 握手使用域名 SNI，安全无报警，方便强制指定线路）
+    if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
+        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv4_域名验证版" >> /etc/hy2_auto/links.txt
+    fi
+    if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
+        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv6_域名验证版" >> /etc/hy2_auto/links.txt
+    fi
+else
+    # 无域名时，输出以 IP 为主机的“纯IP自签混淆版”链接
+    if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
+        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_自签混淆版" >> /etc/hy2_auto/links.txt
+    fi
+    if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
+        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_自签混淆版" >> /etc/hy2_auto/links.txt
+    fi
 fi
 
 # 保存状态
