@@ -109,7 +109,7 @@ curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. 【核心精修】：TLS 证书与智能修改/追加原有配置
+# 5. TLS 证书与智能修改/追加原有配置
 echo "[3/4] 正在智能配置 TLS 证书与加速服务..."
 
 # 检查原本的证书是否存在，如果不存在则申请或生成
@@ -129,7 +129,7 @@ else
     [ -n "$DOMAIN" ] && SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 🛠️ 严格执行你的思路：检测是否存在配置文件
+# 🛠️ 精确修复：检测是否存在配置文件
 if [ ! -f "/etc/hysteria/config.yaml" ] || [ ! -s "/etc/hysteria/config.yaml" ]; then
     # 情况 1：不存在配置文件，直接全新创建主节点
     cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
@@ -143,7 +143,6 @@ auth:
 EOF_HY2_YAML
 else
     # 情况 2：存在配置文件，绝不覆盖！修改原有配置文件，增加新节点配置信息
-    # 如果检测到运行的是纯 IPv6 选项，监听写死 [::] 防止与 IPv4 抢网卡
     if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
         LISTEN_ADDR="[::]:$PORT"
     else
@@ -155,9 +154,12 @@ else
         echo -e "\nadditionalListens:" >> /etc/hysteria/config.yaml
     fi
     
-    # 往原有配置文件的末尾追加新节点
+    # 🔥【终极修正】：追加节点时，必须单独显式指定 TLS 证书与密钥路径，否则核心因找不到证书拒绝启动！
     cat << EOF_APPEND >> /etc/hysteria/config.yaml
   - listen: "$LISTEN_ADDR"
+    tls:
+      cert: /etc/hysteria/server.crt
+      key: /etc/hysteria/server.key
     auth:
       type: password
       password: "$PASSWORD"
@@ -220,7 +222,7 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 节点加速部署完成！链接已修复，请复制导入："
+echo "🎉 Hysteria 2 节点加速部署完成！"
 echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
