@@ -9,14 +9,38 @@ fi
 mkdir -p /etc/hy2_auto
 mkdir -p /etc/hysteria
 
-# 将密码生成提到最顶部，确保绝对获取
+# 将密码生成提到最顶部，确保任何菜单分支都能绝对获取到密码
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 高性能双栈分流版（纯净双节点保底版）"
+echo "    Hysteria 2 高性能分流版（智能检测不冲突版）"
 echo "=========================================================="
+echo " 1. 仅部署【纯 IPv6】高性能节点"
+echo " 2. 仅部署【纯 IPv4】高性能节点"
+echo " 3. 部署【IPv4 & IPv6 双栈】节点"
+echo " 4. 彻底卸载 Hysteria 2"
+echo "=========================================================="
+# 使用安全终端定向读取输入，彻底解决远程执行 read 闪退/跳过的问题
+printf "请选择操作 [1-4]: "
+read -r CHOICE < /dev/tty
 
-# 1. 交互询问：端口与域名（使用定向终端流确保键盘输入不闪退）
+if [ "$CHOICE" -eq 4 ]; then
+    echo "🧹 正在卸载服务并清理环境..."
+    systemctl stop hysteria-server 2>/dev/null
+    systemctl disable hysteria-server 2>/dev/null
+    rm -f /etc/systemd/system/hysteria-server.service
+    systemctl daemon-reload
+    rm -f /usr/local/bin/hysteria /usr/local/bin/sd
+    rm -rf /etc/hysteria /etc/hy2_auto
+    echo "✅ Hysteria 2 已彻底卸载！"
+    exit 0
+elif [ "$CHOICE" -ne 1 ] && [ "$CHOICE" -ne 2 ] && [ "$CHOICE" -ne 3 ]; then
+    echo "❌ 输入错误，脚本退出。"
+    exit 1
+fi
+
+# 1. 交互询问：端口与域名
+echo "----------------------------------------------------------"
 default_port=$(shuf -i 10000-60000 -n 1)
 printf "👉 请输入节点监听端口 (直接回车随机使用 %s): " "$default_port"
 read -r INPUT_PORT < /dev/tty
@@ -26,16 +50,24 @@ printf "👉 请输入解析好的域名 (若建纯IP节点，请直接回车跳
 read -r DOMAIN < /dev/tty
 echo "=========================================================="
 
-# 2. 干净利落地同时抓取公网 IPv4 和 IPv6
-echo "🔍 正在精确获取公网双栈 IP 地址..."
-IP6=$(curl -sS6 --max-time 3 https://api64.ipify.org || curl -sS6 --max-time 3 https://ident.me)
-if [ -z "$IP6" ]; then
-    IP6=$(ip -6 addr show | grep -oP '(?<=inet6\s)[a-f0-9:]+' | grep -v '^::1' | grep -v '^fe80' | head -n 1)
+# 2. 根据菜单选择精准获取 IP
+IP4=""
+IP6=""
+
+if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then
+    echo "🔍 正在获取公网 IPv6 地址..."
+    IP6=$(curl -sS6 --max-time 3 https://api64.ipify.org || curl -sS6 --max-time 3 https://ident.me)
+    if [ -z "$IP6" ]; then
+        IP6=$(ip -6 addr show | grep -oP '(?<=inet6\s)[a-f0-9:]+' | grep -v '^::1' | grep -v '^fe80' | head -n 1)
+    fi
 fi
 
-IP4=$(curl -sS4 --max-time 3 https://ifconfig.me || curl -sS4 --max-time 3 https://api.ipify.org)
-if [ -z "$IP4" ]; then
-    IP4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
+if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then
+    echo "🔍 正在获取公网 IPv4 地址..."
+    IP4=$(curl -sS4 --max-time 3 https://ifconfig.me || curl -sS4 --max-time 3 https://api.ipify.org)
+    if [ -z "$IP4" ]; then
+        IP4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
+    fi
 fi
 
 # 3. 系统内核与 UDP 缓冲区速度优化
@@ -70,27 +102,37 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 下载/更新官方最新核心（安全关闭输入流防止 EOF 冲突）
-echo "[2/4] 正在下载并安装 Hysteria 2 官方最新核心..."
+# 4. 下载官方脚本到本地离线运行，彻底断开标准输入流，防止截断
+echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
+mkdir -p /etc/hysteria
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. 配置官方正统证书与配置路径
-echo "[3/4] 正在配置 TLS 证书与加速服务..."
-if [ -z "$DOMAIN" ]; then
-    openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
-    SNI_PARAM="?sni=Anonymity&insecure=1"
+# 5. 【核心精修】：TLS 证书与智能修改/追加原有配置
+echo "[3/4] 正在智能配置 TLS 证书与加速服务..."
+
+# 检查原本的证书是否存在，如果不存在则申请或生成
+if [ ! -f "/etc/hysteria/server.crt" ]; then
+    if [ -z "$DOMAIN" ]; then
+        openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
+        SNI_PARAM="?sni=Anonymity&insecure=1"
+    else
+        curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
+        SNI_PARAM="?sni=$DOMAIN"
+    fi
 else
-    curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
-    SNI_PARAM="?sni=$DOMAIN"
+    SNI_PARAM="?sni=Anonymity&insecure=1"
+    [ -n "$DOMAIN" ] && SNI_PARAM="?sni=$DOMAIN"
 fi
 
-# 写入正统官方路径的 config.yaml
-cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
+# 🛠️ 严格执行你的思路：检测是否存在配置文件
+if [ ! -f "/etc/hysteria/config.yaml" ] || [ ! -s "/etc/hysteria/config.yaml" ]; then
+    # 情况 1：不存在配置文件，直接全新创建主节点
+    cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
   cert: /etc/hysteria/server.crt
@@ -98,33 +140,66 @@ tls:
 auth:
   type: password
   password: $PASSWORD
+EOF_HY2_YAML
+else
+    # 情况 2：存在配置文件，绝不覆盖！修改原有配置文件，增加新节点配置信息
+    # 如果检测到运行的是纯 IPv6 选项，监听写死 [::] 防止与 IPv4 抢网卡
+    if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
+        LISTEN_ADDR="[::]:$PORT"
+    else
+        LISTEN_ADDR=":$PORT"
+    fi
+
+    # 检查原文件中是否已经包含 additionalListens 关键字，如果没有则加上头部
+    if ! grep -q "additionalListens:" /etc/hysteria/config.yaml; then
+        echo -e "\nadditionalListens:" >> /etc/hysteria/config.yaml
+    fi
+    
+    # 往原有配置文件的末尾追加新节点
+    cat << EOF_APPEND >> /etc/hysteria/config.yaml
+  - listen: "$LISTEN_ADDR"
+    auth:
+      type: password
+      password: "$PASSWORD"
+EOF_APPEND
+fi
+
+# 统一注入高带宽 QUIC 参数（如果文件中还没有的话）
+if ! grep -q "quic:" /etc/hysteria/config.yaml; then
+    cat << EOF_QUIC >> /etc/hysteria/config.yaml
 quic:
   initStreamReceiveWindow: 8388608
   maxStreamReceiveWindow: 8388608
   initConnectionReceiveWindow: 16777216
   maxConnectionReceiveWindow: 16777216
   maxIncomingStreams: 1024
-EOF_HY2_YAML
+EOF_QUIC
+fi
 
 chown -R hysteria:hysteria /etc/hysteria
 chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
 
-# 清理之前残留的隔离服务冲突，全部归顺官方服务
+# 清除可能残留的旧隔离服务
 systemctl stop hy2-v6-custom 2>/dev/null
 systemctl disable hy2-v6-custom 2>/dev/null
 rm -f /etc/systemd/system/hy2-v6-custom.service
 
-systemctl daemon-reload
-systemctl enable hysteria-server && systemctl restart hysteria-server >/dev/null 2>&1
+systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server >/dev/null 2>&1
 
-# 6. 同时拼接有效格式的双栈链接（无任何条件裁切，直接双出）
+# 6. 精准拼接有效格式链接
 rm -f /etc/hy2_auto/links.txt
 
 if [ -n "$DOMAIN" ]; then
-    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_双栈_域名版" >> /etc/hy2_auto/links.txt
+    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_域名加速版" >> /etc/hy2_auto/links.txt
 else
-    [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_双栈IPv6_加速版" >> /etc/hy2_auto/links.txt
-    [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_双栈IPv4_加速版" >> /etc/hy2_auto/links.txt
+    if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
+        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
+    elif [ "$CHOICE" -eq 2 ] && [ -n "$IP4" ]; then
+        echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_纯IPv4_加速版" >> /etc/hy2_auto/links.txt
+    elif [ "$CHOICE" -eq 3 ]; then
+        [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_双栈IPv6_加速版" >> /etc/hy2_auto/links.txt
+        [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_双栈IPv4_加速版" >> /etc/hy2_auto/links.txt
+    fi
 fi
 
 # 生成快捷查看命令 sd
@@ -145,12 +220,12 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 双栈保底版节点部署完成！链接如下："
+echo "🎉 Hysteria 2 节点加速部署完成！链接已修复，请复制导入："
 echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
 else
-    echo "❌ 节点链接生成失败，请检查网卡 IP。"
+    echo "❌ 节点链接生成失败，请确认您选择的 IP 类型是否在 VPS 上真实存在。"
 fi
 echo "=========================================================="
 echo "💡 后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可再次查看"
