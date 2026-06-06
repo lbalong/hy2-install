@@ -52,13 +52,37 @@ read -p "请选择操作 [1-4]: " CHOICE
 
 if [ "$CHOICE" -eq 4 ]; then
     echo "🧹 正在卸载服务并清理环境..."
+    
+    # 1. 尝试使用官方卸载程序卸载核心与系统服务
+    if [ -f "/usr/local/bin/hysteria" ]; then
+        echo "🔄 正在调用官方卸载脚本..."
+        curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/uninstall_hy2.sh 2>/dev/null
+        if [ -f "/etc/hy2_auto/uninstall_hy2.sh" ]; then
+            bash /etc/hy2_auto/uninstall_hy2.sh --remove </dev/null >/dev/null 2>&1
+            rm -f /etc/hy2_auto/uninstall_hy2.sh
+        fi
+    fi
+
+    # 2. 停止并禁用残留的服务
     systemctl stop hysteria-server 2>/dev/null
     systemctl disable hysteria-server 2>/dev/null
     rm -f /etc/systemd/system/hysteria-server.service
+    rm -f /etc/systemd/system/hysteria-server@.service
     systemctl daemon-reload
+
+    # 3. 清理二进制文件和快捷命令
     rm -f /usr/local/bin/hysteria /usr/local/bin/sd
+
+    # 4. 彻底清理已创建的系统用户和组
+    if id "hysteria" &>/dev/null; then
+        echo "👤 正在清理 hysteria 系统用户..."
+        userdel -r hysteria 2>/dev/null
+    fi
+
+    # 5. 清理配置和状态文件夹
     rm -rf /etc/hysteria /etc/hy2_auto
-    echo "✅ Hysteria 2 已彻底卸载！"
+    
+    echo "✅ Hysteria 2 已彻底卸载并清理残留环境！"
     exit 0
 elif [ "$CHOICE" -ne 1 ] && [ "$CHOICE" -ne 2 ] && [ "$CHOICE" -ne 3 ]; then
     echo "❌ 输入错误，脚本退出。"
@@ -143,7 +167,7 @@ fi
 # 3. 系统内核与 UDP 缓冲区速度优化
 echo "[1/4] 正在注入高性能 UDP 调优参数并开启 BBR..."
 cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-hy2-performance.conf
-# 极大增加最大和默认缓冲区大小，支持高带宽延迟积 (BDP)
+# 极大增加最大 and 默认缓冲区大小，支持高带宽延迟积 (BDP)
 net.core.rmem_max=67108864
 net.core.wmem_max=67108864
 net.core.rmem_default=33554432
@@ -193,11 +217,21 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 下载官方脚本到本地离线运行，彻底断开标准输入流，防止截断
+# 4. 下载官方脚本到本地运行，增加运行诊断
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
-# 使用 </dev/null 强行关闭标准输入，彻底根治远程执行时的 EOF 冲突
-bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
+if [ ! -f "/etc/hy2_auto/install_hy2.sh" ]; then
+    echo "❌ 错误：未能从官方源下载安装脚本，请检查 VPS 的网络连接！"
+    exit 1
+fi
+
+# 运行并记录日志，方便在安装出错时查看原因
+if ! bash /etc/hy2_auto/install_hy2.sh </dev/null >/etc/hy2_auto/install.log 2>&1; then
+    echo "❌ 错误：Hysteria 2 核心安装失败！"
+    echo "📋 官方安装日志如下："
+    cat /etc/hy2_auto/install.log
+    exit 1
+fi
 rm -f /etc/hy2_auto/install_hy2.sh
 
 # 5. TLS 证书与加速服务配置
@@ -242,7 +276,30 @@ EOF_HY2_YAML
 
 chown -R hysteria:hysteria /etc/hysteria
 chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
-systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server >/dev/null 2>&1
+
+# 启动并进行严格的状态检测
+echo "🔄 正在启动 Hysteria 2 服务..."
+systemctl daemon-reload
+systemctl enable hysteria-server >/dev/null 2>&1
+
+if ! systemctl restart hysteria-server; then
+    echo "❌ 错误：Hysteria 2 服务启动命令执行失败！"
+    echo "📋 诊断日志："
+    journalctl -u hysteria-server --no-pager -n 30
+    exit 1
+fi
+
+# 稍等 2 秒等待服务初始化绑定端口
+sleep 2
+if ! systemctl is-active --quiet hysteria-server; then
+    echo "❌ 错误：Hysteria 2 服务未能成功保持运行！"
+    echo "📋 服务当前状态："
+    systemctl status hysteria-server --no-pager
+    echo "📋 详细系统日志："
+    journalctl -u hysteria-server --no-pager -n 30
+    exit 1
+fi
+echo "✅ Hysteria 2 服务启动成功，目前正在后台正常运行。"
 
 # 6. 精准拼接有效格式链接
 rm -f /etc/hy2_auto/links.txt
@@ -291,7 +348,7 @@ echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
 else
-    echo "❌ 节点链接生成失败，请确认您选择的 IP 类型是否在 VPS 上真实存在。"
+    echo "❌ 节点链接生成失败，请确认您选择 of IP 类型是否在 VPS 上真实存在。"
 fi
 echo "=========================================================="
 echo "💡 后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可再次查看"
