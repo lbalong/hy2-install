@@ -13,7 +13,7 @@ mkdir -p /etc/hysteria
 PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
 
 echo "=========================================================="
-echo "    Hysteria 2 高性能分流版（智能检测不冲突版）"
+echo "    Hysteria 2 高性能分流版（智能双轨无损并存版）"
 echo "=========================================================="
 echo " 1. 仅部署【纯 IPv6】高性能节点"
 echo " 2. 仅部署【纯 IPv4】高性能节点"
@@ -25,14 +25,14 @@ printf "请选择操作 [1-4]: "
 read -r CHOICE < /dev/tty
 
 if [ "$CHOICE" -eq 4 ]; then
-    echo "🧹 正在卸载服务并清理环境..."
-    systemctl stop hysteria-server 2>/dev/null
-    systemctl disable hysteria-server 2>/dev/null
-    rm -f /etc/systemd/system/hysteria-server.service
+    echo "🧹 正在卸载所有相关服务并清理环境..."
+    systemctl stop hysteria-server hysteria-v6-server 2>/dev/null
+    systemctl disable hysteria-server hysteria-v6-server 2>/dev/null
+    rm -f /etc/systemd/system/hysteria-server.service /etc/systemd/system/hysteria-v6-server.service
     systemctl daemon-reload
     rm -f /usr/local/bin/hysteria /usr/local/bin/sd
     rm -rf /etc/hysteria /etc/hy2_auto
-    echo "✅ Hysteria 2 已彻底卸载！"
+    echo "✅ Hysteria 2 已彻底安全卸载！"
     exit 0
 elif [ "$CHOICE" -ne 1 ] && [ "$CHOICE" -ne 2 ] && [ "$CHOICE" -ne 3 ]; then
     echo "❌ 输入错误，脚本退出。"
@@ -102,91 +102,119 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 下载官方脚本到本地离线运行，彻底断开标准输入流，防止截断
+# 4. 下载官方脚本到本地离线运行
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
-mkdir -p /etc/hysteria
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
 rm -f /etc/hy2_auto/install_hy2.sh
 
-# 5. TLS 证书与智能修改/追加原有配置
-echo "[3/4] 正在智能配置 TLS 证书与加速服务..."
+# 5. 【核心重构：无损双轨并存机制】
+echo "[3/4] 正在智能检测系统环境，配置专属加速服务..."
 
-# 检查原本的证书是否存在，如果不存在则申请或生成
-if [ ! -f "/etc/hysteria/server.crt" ]; then
+# 🛠️ 严格落地你的核心思路：检测是否存在官方配置文件
+if [ ! -f "/etc/hysteria/config.yaml" ] || [ ! -s "/etc/hysteria/config.yaml" ]; then
+    # 【轨道 A】不存在旧配置，说明是全新安装。直接走官方正统主路径，保证完全兼容
+    CONF_FILE="/etc/hysteria/config.yaml"
+    CERT_FILE="/etc/hysteria/server.crt"
+    KEY_FILE="/etc/hysteria/server.key"
+    SERVICE_NAME="hysteria-server"
+    
     if [ -z "$DOMAIN" ]; then
-        openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
+        openssl req -x509 -nodes -newkey rsa:2048 -keyout "$KEY_FILE" -out "$CERT_FILE" -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
         SNI_PARAM="?sni=Anonymity&insecure=1"
     else
         curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
         ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
         ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
+        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$KEY_FILE" --fullchain-file "$CERT_FILE"
         SNI_PARAM="?sni=$DOMAIN"
     fi
-else
-    SNI_PARAM="?sni=Anonymity&insecure=1"
-    [ -n "$DOMAIN" ] && SNI_PARAM="?sni=$DOMAIN"
-fi
 
-# 🛠️ 精确修复：检测是否存在配置文件
-if [ ! -f "/etc/hysteria/config.yaml" ] || [ ! -s "/etc/hysteria/config.yaml" ]; then
-    # 情况 1：不存在配置文件，直接全新创建主节点
-    cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
+    cat << EOF_MAIN_YAML > "$CONF_FILE"
 listen: :$PORT
 tls:
-  cert: /etc/hysteria/server.crt
-  key: /etc/hysteria/server.key
+  cert: $CERT_FILE
+  key: $KEY_FILE
 auth:
   type: password
   password: $PASSWORD
-EOF_HY2_YAML
-else
-    # 情况 2：存在配置文件，绝不覆盖！修改原有配置文件，增加新节点配置信息
-    if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
-        LISTEN_ADDR="[::]:$PORT"
-    else
-        LISTEN_ADDR=":$PORT"
-    fi
-
-    # 检查原文件中是否已经包含 additionalListens 关键字，如果没有则加上头部
-    if ! grep -q "additionalListens:" /etc/hysteria/config.yaml; then
-        echo -e "\nadditionalListens:" >> /etc/hysteria/config.yaml
-    fi
-    
-    # 🔥【终极修正】：追加节点时，必须单独显式指定 TLS 证书与密钥路径，否则核心因找不到证书拒绝启动！
-    cat << EOF_APPEND >> /etc/hysteria/config.yaml
-  - listen: "$LISTEN_ADDR"
-    tls:
-      cert: /etc/hysteria/server.crt
-      key: /etc/hysteria/server.key
-    auth:
-      type: password
-      password: "$PASSWORD"
-EOF_APPEND
-fi
-
-# 统一注入高带宽 QUIC 参数（如果文件中还没有的话）
-if ! grep -q "quic:" /etc/hysteria/config.yaml; then
-    cat << EOF_QUIC >> /etc/hysteria/config.yaml
 quic:
   initStreamReceiveWindow: 8388608
   maxStreamReceiveWindow: 8388608
   initConnectionReceiveWindow: 16777216
   maxConnectionReceiveWindow: 16777216
   maxIncomingStreams: 1024
-EOF_QUIC
+EOF_MAIN_YAML
+
+    chown -R hysteria:hysteria /etc/hysteria
+    chmod 755 /etc/hysteria; chmod 644 "$CERT_FILE"; chmod 600 "$KEY_FILE"
+    systemctl daemon-reload && systemctl enable "$SERVICE_NAME" && systemctl restart "$SERVICE_NAME" >/dev/null 2>&1
+
+else
+    # 【轨道 B】检测到已有其它脚本生成的配置！我们绝不覆盖对方，而是无损生成专属的双轨并存配置
+    CONF_FILE="/etc/hysteria/config_v6.yaml"
+    CERT_FILE="/etc/hysteria/server_v6.crt"
+    KEY_FILE="/etc/hysteria/server_v6.key"
+    SERVICE_NAME="hysteria-v6-server"
+
+    if [ -z "$DOMAIN" ]; then
+        openssl req -x509 -nodes -newkey rsa:2048 -keyout "$KEY_FILE" -out "$CERT_FILE" -days 3650 -subj "/CN=Anonymity_V6" >/dev/null 2>&1
+        SNI_PARAM="?sni=Anonymity_V6&insecure=1"
+    else
+        curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "$KEY_FILE" --fullchain-file "$CERT_FILE"
+        SNI_PARAM="?sni=$DOMAIN"
+    fi
+
+    # 如果是纯 IPv6 选项，绑定 [::] 确保绝对独立监听不抢占
+    if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
+        LISTEN_ADDR="[::]:$PORT"
+    else
+        LISTEN_ADDR=":$PORT"
+    fi
+
+    cat << EOF_V6_YAML > "$CONF_FILE"
+listen: "$LISTEN_ADDR"
+tls:
+  cert: $CERT_FILE
+  key: $KEY_FILE
+auth:
+  type: password
+  password: $PASSWORD
+quic:
+  initStreamReceiveWindow: 8388608
+  maxStreamReceiveWindow: 8388608
+  initConnectionReceiveWindow: 16777216
+  maxConnectionReceiveWindow: 16777216
+  maxIncomingStreams: 1024
+EOF_V6_YAML
+
+    chown -R hysteria:hysteria /etc/hysteria
+    chmod 644 "$CERT_FILE"; chmod 600 "$KEY_FILE"
+
+    # 为并存的独立节点注册专属系统进程，完美使用原生 root 权限和官方主核心运行
+    cat << EOF_SERVICE > /etc/systemd/system/hysteria-v6-server.service
+[Unit]
+Description=Hysteria 2 Multi-Node Coexistence IPv6 Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/etc/hysteria
+ExecStart=/usr/local/bin/hysteria server --config /etc/hysteria/config_v6.yaml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
+
+    systemctl daemon-reload
+    systemctl enable "$SERVICE_NAME" && systemctl restart "$SERVICE_NAME" >/dev/null 2>&1
 fi
-
-chown -R hysteria:hysteria /etc/hysteria
-chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
-
-# 清除可能残留的旧隔离服务
-systemctl stop hy2-v6-custom 2>/dev/null
-systemctl disable hy2-v6-custom 2>/dev/null
-rm -f /etc/systemd/system/hy2-v6-custom.service
-
-systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server >/dev/null 2>&1
 
 # 6. 精准拼接有效格式链接
 rm -f /etc/hy2_auto/links.txt
@@ -222,7 +250,7 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 节点加速部署完成！"
+echo "🎉 Hysteria 2 节点双轨加速部署完成！请复制导入 V2rayN："
 echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
