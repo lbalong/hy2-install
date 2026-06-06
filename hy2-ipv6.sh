@@ -21,7 +21,7 @@ if [ -f "$STATE_FILE" ]; then
     source "$STATE_FILE" 2>/dev/null
 fi
 
-# 从现有 config.yaml 提取端口和密码（若存在）
+# 从现有 config.yaml 提取端口 and 密码（若存在）
 EXISTING_PORT=""
 EXISTING_PASSWORD=""
 if [ -f "/etc/hysteria/config.yaml" ]; then
@@ -281,18 +281,27 @@ echo "✅ Hysteria 2 服务启动成功，目前正在后台正常运行。"
 # 6. 精准拼接有效格式链接 (附加混淆参数)
 rm -f /etc/hy2_auto/links.txt
 
-if [ -n "$DOMAIN" ]; then
-    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名混淆加速版" >> /etc/hy2_auto/links.txt
-else
-    # 结合已部署的协议类型生成相应链接
-    if [ "$DEPLOYED_IPV4" = "true" ] && [ "$DEPLOYED_IPV6" = "true" ]; then
-        [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv6_混淆加速版" >> /etc/hy2_auto/links.txt
-        [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv4_混淆加速版" >> /etc/hy2_auto/links.txt
-    elif [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_混淆加速版" >> /etc/hy2_auto/links.txt
-    elif [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
-        echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_混淆加速版" >> /etc/hy2_auto/links.txt
+# 无论是否有域名，双栈都输出两个独立的节点链接 (IPv4 和 IPv6)
+# 如果有域名，连接的主机为 IP，但 SNI 设为域名，这既能强制路由又能通过 TLS 证书校验，且不需要 insecure=1
+if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
+    if [ -n "$DOMAIN" ]; then
+        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv4_域名版" >> /etc/hy2_auto/links.txt
+    else
+        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_混淆版" >> /etc/hy2_auto/links.txt
     fi
+fi
+
+if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
+    if [ -n "$DOMAIN" ]; then
+        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv6_域名版" >> /etc/hy2_auto/links.txt
+    else
+        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_混淆版" >> /etc/hy2_auto/links.txt
+    fi
+fi
+
+# 如果配置了域名，额外输出一个直连域名的双栈链接
+if [ -n "$DOMAIN" ]; then
+    echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名直连双栈版" >> /etc/hy2_auto/links.txt
 fi
 
 # 保存状态
