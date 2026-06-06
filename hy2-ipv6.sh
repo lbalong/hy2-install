@@ -143,11 +143,31 @@ fi
 # 3. 系统内核与 UDP 缓冲区速度优化
 echo "[1/4] 正在注入高性能 UDP 调优参数并开启 BBR..."
 cat << 'EOF_SYSCTL' > /etc/sysctl.d/99-hy2-performance.conf
-net.core.rmem_max=33554432
-net.core.wmem_max=33554432
-net.core.rmem_default=16777216
-net.core.wmem_default=16777216
+# 极大增加最大和默认缓冲区大小，支持高带宽延迟积 (BDP)
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.core.rmem_default=33554432
+net.core.wmem_default=33554432
+
+# 增加网卡接收队列的最大数据包数，防止 UDP 高速传输时丢包
+net.core.netdev_max_backlog=100000
+
+# 优化连接跟踪最大值，防止高并发连接时丢包
 net.netfilter.nf_conntrack_max=1048576
+
+# TCP/UDP 内存调优
+net.ipv4.tcp_rmem=4096 87380 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+
+# IP分片内存限制，避免高速 UDP 分片丢失导致重传
+net.ipv4.ipfrag_high_thresh=26214400
+net.ipv4.ipfrag_low_thresh=19660800
+net.ipv6.ip6frag_high_thresh=26214400
+net.ipv6.ip6frag_low_thresh=19660800
+
+# 开启 BBR 拥塞控制算法
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 EOF_SYSCTL
