@@ -1,3 +1,4 @@
+cat << 'EOF' > /root/hy2_deploy.sh
 #!/bin/bash
 
 # 检查是否为 Root 用户
@@ -298,12 +299,13 @@ ${link}"
     fi
 }
 
-# 如果配置了域名，输出真正的域名直连节点，并提供 IP 直连但通过域名 TLS 验证的辅助节点
+# 如果配置了域名，输出真正的域名直连节点，并提供 IP 直连但通过域名 TLS 验证 of 辅助节点
 if [ -n "$DOMAIN" ]; then
     # 1. 输出域名直连节点（主机名为域名，由客户端自动解析双栈或单栈）
     if [ "$DEPLOYED_IPV4" = "true" ] && [ "$DEPLOYED_IPV6" = "true" ]; then
-        # 既然现在是双栈，如果本次操作是 1 (纯IPv6) 或 2 (纯IPv4) 或 3 (双栈)，这个双栈域名节点对本次操作都是有效的
-        add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名双栈_自动选择" "true"
+        local is_curr="false"
+        if [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
+        add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名双栈_自动选择" "$is_curr"
     elif [ "$DEPLOYED_IPV6" = "true" ]; then
         local is_curr="false"
         if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
@@ -370,9 +372,12 @@ echo "=========================================================="
 if [ -n "$CURRENT_LINKS" ]; then
     echo "$CURRENT_LINKS"
 else
-    echo "❌ 节点链接生成失败，请确认您选择的 IP 类型是否在 VPS 上真实存在。"
+    echo "❌ 节点链接生成失败，请确认您选择 of IP 类型是否在 VPS 上真实存在。"
 fi
 echo "=========================================================="
 echo "💡 后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可查看所有有效节点"
 echo " "
 exit 0
+EOF
+chmod +x /root/hy2_deploy.sh
+/root/hy2_deploy.sh
