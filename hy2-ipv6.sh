@@ -299,43 +299,43 @@ ${link}"
     fi
 }
 
-# 如果配置了域名，输出真正的域名直连节点，并提供 IP 直连但通过域名 TLS 验证 of 辅助节点
+# 如果配置了域名，输出真正的域名直连节点，并提供 IP 直连但通过域名 TLS 验证的辅助节点
 if [ -n "$DOMAIN" ]; then
     # 1. 输出域名直连节点（主机名为域名，由客户端自动解析双栈或单栈）
     if [ "$DEPLOYED_IPV4" = "true" ] && [ "$DEPLOYED_IPV6" = "true" ]; then
-        local is_curr="false"
+        is_curr="false"
         if [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
         add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名双栈_自动选择" "$is_curr"
     elif [ "$DEPLOYED_IPV6" = "true" ]; then
-        local is_curr="false"
+        is_curr="false"
         if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
         add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv6" "$is_curr"
     elif [ "$DEPLOYED_IPV4" = "true" ]; then
-        local is_curr="false"
+        is_curr="false"
         if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
         add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv4" "$is_curr"
     fi
 
     # 2. 输出 IP 直连域名验证节点（主机名为 IP，TLS 握手使用域名 SNI，安全无报警，方便强制指定线路）
     if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
-        local is_curr="false"
+        is_curr="false"
         if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
         add_link "hy2://$PASSWORD@$IP4:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv4_域名验证版" "$is_curr"
     fi
     if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
-        local is_curr="false"
+        is_curr="false"
         if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
         add_link "hy2://$PASSWORD@[$IP6]:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv6_域名验证版" "$is_curr"
     fi
 else
     # 无域名时，输出以 IP 为主机的“纯IP自签混淆版”链接
     if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
-        local is_curr="false"
+        is_curr="false"
         if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
         add_link "hy2://$PASSWORD@$IP4:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_自签混淆版" "$is_curr"
     fi
     if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
-        local is_curr="false"
+        is_curr="false"
         if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
         add_link "hy2://$PASSWORD@[$IP6]:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_自签混淆版" "$is_curr"
     fi
