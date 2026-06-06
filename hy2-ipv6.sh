@@ -198,7 +198,7 @@ fi
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 if [ ! -f "/etc/hy2_auto/install_hy2.sh" ]; then
-    echo "❌ 错误：未能从官方源下载安装脚本，请检查 VPS 的 network 连接！"
+    echo "❌ 错误：未能从官方源下载安装脚本，请检查 VPS 的网络连接！"
     exit 1
 fi
 if ! bash /etc/hy2_auto/install_hy2.sh </dev/null >/etc/hy2_auto/install.log 2>&1; then
@@ -281,32 +281,61 @@ echo "✅ Hysteria 2 服务启动成功，目前正在后台正常运行。"
 
 # 6. 精准拼接有效格式链接 (附加混淆参数)
 rm -f /etc/hy2_auto/links.txt
+CURRENT_LINKS=""
+
+# 辅助写入链接的函数，同时记录到 links.txt 和本次输出中
+add_link() {
+    local link="$1"
+    local is_for_current="$2"
+    echo "$link" >> /etc/hy2_auto/links.txt
+    if [ "$is_for_current" = "true" ]; then
+        if [ -z "$CURRENT_LINKS" ]; then
+            CURRENT_LINKS="$link"
+        else
+            CURRENT_LINKS="${CURRENT_LINKS}
+${link}"
+        fi
+    fi
+}
 
 # 如果配置了域名，输出真正的域名直连节点，并提供 IP 直连但通过域名 TLS 验证的辅助节点
 if [ -n "$DOMAIN" ]; then
     # 1. 输出域名直连节点（主机名为域名，由客户端自动解析双栈或单栈）
     if [ "$DEPLOYED_IPV4" = "true" ] && [ "$DEPLOYED_IPV6" = "true" ]; then
-        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名双栈_自动选择" >> /etc/hy2_auto/links.txt
+        # 既然现在是双栈，如果本次操作是 1 (纯IPv6) 或 2 (纯IPv4) 或 3 (双栈)，这个双栈域名节点对本次操作都是有效的
+        add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名双栈_自动选择" "true"
     elif [ "$DEPLOYED_IPV6" = "true" ]; then
-        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv6" >> /etc/hy2_auto/links.txt
+        local is_curr="false"
+        if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
+        add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv6" "$is_curr"
     elif [ "$DEPLOYED_IPV4" = "true" ]; then
-        echo "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv4" >> /etc/hy2_auto/links.txt
+        local is_curr="false"
+        if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
+        add_link "hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名_纯IPv4" "$is_curr"
     fi
 
     # 2. 输出 IP 直连域名验证节点（主机名为 IP，TLS 握手使用域名 SNI，安全无报警，方便强制指定线路）
     if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
-        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv4_域名验证版" >> /etc/hy2_auto/links.txt
+        local is_curr="false"
+        if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
+        add_link "hy2://$PASSWORD@$IP4:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv4_域名验证版" "$is_curr"
     fi
     if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv6_域名验证版" >> /etc/hy2_auto/links.txt
+        local is_curr="false"
+        if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
+        add_link "hy2://$PASSWORD@[$IP6]:$PORT?sni=$DOMAIN&obfs=salamander&obfs-password=$PASSWORD#Hy2_IPv6_域名验证版" "$is_curr"
     fi
 else
     # 无域名时，输出以 IP 为主机的“纯IP自签混淆版”链接
     if [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
-        echo "hy2://$PASSWORD@$IP4:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_自签混淆版" >> /etc/hy2_auto/links.txt
+        local is_curr="false"
+        if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
+        add_link "hy2://$PASSWORD@$IP4:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_自签混淆版" "$is_curr"
     fi
     if [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_自签混淆版" >> /etc/hy2_auto/links.txt
+        local is_curr="false"
+        if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then is_curr="true"; fi
+        add_link "hy2://$PASSWORD@[$IP6]:$PORT?sni=$MASQUERADE_DOMAIN&insecure=1&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_自签混淆版" "$is_curr"
     fi
 fi
 
@@ -336,14 +365,14 @@ chmod +x /usr/local/bin/sd
 # 7. 最终终端纯净输出
 echo " "
 echo "=========================================================="
-echo "🎉 Hysteria 2 节点加速部署完成！链接已修复，请复制导入："
+echo "🎉 Hysteria 2 节点加速部署完成！请复制导入本次新增/更新节点："
 echo "=========================================================="
-if [ -s "/etc/hy2_auto/links.txt" ]; then
-    cat /etc/hy2_auto/links.txt
+if [ -n "$CURRENT_LINKS" ]; then
+    echo "$CURRENT_LINKS"
 else
     echo "❌ 节点链接生成失败，请确认您选择的 IP 类型是否在 VPS 上真实存在。"
 fi
 echo "=========================================================="
-echo "💡 后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可再次查看"
+echo "💡 后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可查看所有有效节点"
 echo " "
 exit 0
