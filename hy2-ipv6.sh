@@ -113,7 +113,7 @@ elif [ "$CHOICE" -eq 3 ]; then
     DEPLOYED_IPV6="true"
 fi
 
-# 2. 根据合并后的状态获取公网 IP 地址
+# 2. 根据合并后的状态获取公网 IP 地址 (改用最稳健的 awk 提取)
 IP4=""
 IP6=""
 
@@ -121,16 +121,18 @@ if [ "$DEPLOYED_IPV6" = "true" ]; then
     echo "🔍 正在获取公网 IPv6 地址..."
     IP6=$(curl -sS6 --max-time 3 https://api64.ipify.org || curl -sS6 --max-time 3 https://ident.me)
     if [ -z "$IP6" ]; then
-        IP6=$(ip -6 addr show | grep -oP '(?<=inet6\s)[a-f0-9:]+' | grep -v '^::1' | grep -v '^fe80' | head -n 1)
+        IP6=$(ip -6 addr show | grep 'inet6' | awk '{print $2}' | cut -d'/' -f1 | grep -v '^::1' | grep -v '^fe80' | head -n 1)
     fi
+    echo "🌐 检测到 IPv6 地址: ${IP6:-[未检测到]}"
 fi
 
 if [ "$DEPLOYED_IPV4" = "true" ]; then
     echo "🔍 正在获取公网 IPv4 地址..."
     IP4=$(curl -sS4 --max-time 3 https://ifconfig.me || curl -sS4 --max-time 3 https://api.ipify.org)
     if [ -z "$IP4" ]; then
-        IP4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
+        IP4=$(ip -4 addr show | grep 'inet' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d'/' -f1 | head -n 1)
     fi
+    echo "🌐 检测到 IPv4 地址: ${IP4:-[未检测到]}"
 fi
 
 # 检查 IP 是否成功获取
