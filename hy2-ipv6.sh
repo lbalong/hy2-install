@@ -41,7 +41,7 @@ else
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 高性能分流版（多节点共存优化版）"
+echo "    Hysteria 2 高性能分流版（多节点共存与进程强杀版）"
 echo "=========================================================="
 echo " 1. 部署/增加【纯 IPv6】高性能节点"
 echo " 2. 部署/增加【纯 IPv4】高性能节点"
@@ -63,9 +63,12 @@ if [ "$CHOICE" -eq 4 ]; then
         fi
     fi
 
-    # 2. 停止并禁用残留的服务
+    # 2. 停止并禁用所有可能冲突的服务并强杀进程
+    systemctl stop hysteria 2>/dev/null
+    systemctl disable hysteria 2>/dev/null
     systemctl stop hysteria-server 2>/dev/null
     systemctl disable hysteria-server 2>/dev/null
+    pkill -9 hysteria 2>/dev/null
     rm -f /etc/systemd/system/hysteria-server.service
     rm -f /etc/systemd/system/hysteria-server@.service
     systemctl daemon-reload
@@ -212,9 +215,9 @@ iptables -F && iptables -X && iptables -P INPUT ACCEPT
 if command -v ip6tables > /dev/null; then ip6tables -F && ip6tables -X && ip6tables -P INPUT ACCEPT; fi
 
 if command -v apt-get >/dev/null; then
-  apt-get update -y >/dev/null 2>&1 && apt-get install -y curl openssl wget >/dev/null 2>&1
+  apt-get update -y >/dev/null 2>&1 && apt-get install -y curl openssl wget psmisc >/dev/null 2>&1
 elif command -v yum >/dev/null; then
-  yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
+  yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget psmisc >/dev/null 2>&1
 fi
 
 # 4. 下载官方脚本到本地运行，增加运行诊断
@@ -277,7 +280,36 @@ EOF_HY2_YAML
 chown -R hysteria:hysteria /etc/hysteria
 chmod 755 /etc/hysteria; chmod 644 /etc/hysteria/server.crt; chmod 600 /etc/hysteria/server.key
 
-# 启动并进行严格的状态检测
+# 预先清理可能残留占用该端口的旧 hysteria 进程
+echo "🛑 正在停止并清理可能残留的 Hysteria 进程，释放端口..."
+systemctl stop hysteria 2>/dev/null
+systemctl stop hysteria-server 2>/dev/null
+pkill -9 hysteria 2>/dev/null
+
+# 检测端口占用
+port_occupied=false
+if command -v ss &>/dev/null; then
+    if ss -ulnp | grep -q ":$PORT "; then
+        port_occupied=true
+    fi
+elif command -v netstat &>/dev/null; then
+    if netstat -ulnp | grep -q ":$PORT "; then
+        port_occupied=true
+    fi
+fi
+
+if [ "$port_occupied" = "true" ]; then
+    echo "⚠️ 警告：检测到端口 $PORT UDP 已被其他非 Hysteria 服务占用！"
+    echo "📋 占用端口的进程信息如下："
+    if command -v ss &>/dev/null; then
+        ss -ulnp | grep ":$PORT "
+    else
+        netstat -ulnp | grep ":$PORT "
+    fi
+    echo "💡 提示：如果该端口被 Nginx/Caddy (HTTP/3) 或其他代理服务占用，Hysteria 将启动失败。请换用其他端口重新运行脚本。"
+fi
+
+# 启动并进行状态检测
 echo "🔄 正在启动 Hysteria 2 服务..."
 systemctl daemon-reload
 systemctl enable hysteria-server >/dev/null 2>&1
@@ -348,7 +380,7 @@ echo "=========================================================="
 if [ -s "/etc/hy2_auto/links.txt" ]; then
     cat /etc/hy2_auto/links.txt
 else
-    echo "❌ 节点链接生成失败，请确认您选择 of IP 类型是否在 VPS 上真实存在。"
+    echo "❌ 节点链接生成失败，请确认您选择的 IP 类型是否在 VPS 上真实存在。"
 fi
 echo "=========================================================="
 echo "💡 后续在 VPS 窗口随时输入快捷命令 [ sd ] 即可再次查看"
