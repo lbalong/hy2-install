@@ -7,15 +7,44 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 mkdir -p /etc/hy2_auto
+mkdir -p /etc/hysteria
 
-# 将密码生成提到最顶部，确保任何菜单分支都能绝对获取到密码
-PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+# 定义状态文件路径
+STATE_FILE="/etc/hy2_auto/state.conf"
+DEPLOYED_IPV4="false"
+DEPLOYED_IPV6="false"
+DEPLOYED_DOMAIN=""
+
+# 读取已有状态
+if [ -f "$STATE_FILE" ]; then
+    source "$STATE_FILE" 2>/dev/null
+fi
+
+# 从现有 config.yaml 提取端口和密码（若存在）
+EXISTING_PORT=""
+EXISTING_PASSWORD=""
+if [ -f "/etc/hysteria/config.yaml" ]; then
+    # 提取端口号：匹配 listen: 字段，提取最后一个冒号后的数字，并清理空格和特殊字符
+    EXISTING_PORT=$(grep -E '^\s*listen:' /etc/hysteria/config.yaml | awk -F ':' '{print $NF}')
+    EXISTING_PORT=$(echo "$EXISTING_PORT" | tr -dc '0-9')
+    
+    # 提取密码：匹配 password: 字段，提取后面的内容并清理空格和引号
+    EXISTING_PASSWORD=$(grep -E '^\s*password:' /etc/hysteria/config.yaml | awk '{print $NF}' | tr -d '[:space:]"')
+fi
+
+# 如果有旧密码则沿用，否则生成新密码
+if [ -n "$EXISTING_PASSWORD" ]; then
+    PASSWORD="$EXISTING_PASSWORD"
+    echo "ℹ️ 检测到已存在节点密码，脚本将沿用旧密码以保持客户端配置有效。"
+else
+    PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+fi
 
 echo "=========================================================="
-echo "    Hysteria 2 高性能分流版（彻底根治流冲突版）"
+echo "    Hysteria 2 高性能分流版（多节点共存优化版）"
 echo "=========================================================="
-echo " 1. 仅部署【纯 IPv6】高性能节点"
-echo " 2. 仅部署【纯 IPv4】高性能节点"
+echo " 1. 部署/增加【纯 IPv6】高性能节点"
+echo " 2. 部署/增加【纯 IPv4】高性能节点"
 echo " 3. 部署【IPv4 & IPv6 双栈】节点"
 echo " 4. 彻底卸载 Hysteria 2"
 echo "=========================================================="
@@ -38,18 +67,50 @@ fi
 
 # 1. 交互询问：端口与域名
 echo "----------------------------------------------------------"
-default_port=$(shuf -i 10000-60000 -n 1)
-read -p "👉 请输入节点监听端口 (直接回车随机使用 $default_port): " INPUT_PORT
+if [ -n "$EXISTING_PORT" ]; then
+    default_port="$EXISTING_PORT"
+    echo "ℹ️ 检测到已有 Hysteria 2 服务运行在端口 $default_port"
+else
+    default_port=$(shuf -i 10000-60000 -n 1)
+fi
+read -p "👉 请输入节点监听端口 (直接回车默认使用 $default_port): " INPUT_PORT
 PORT="${INPUT_PORT:-$default_port}"
 
-read -p "👉 请输入解析好的域名 (若建纯IP节点，请直接回车跳过): " DOMAIN
+# 询问域名，并支持沿用或清除
+if [ -n "$DEPLOYED_DOMAIN" ]; then
+    default_domain="$DEPLOYED_DOMAIN"
+    read -p "👉 请输入解析好的域名 (直接回车将沿用旧域名 $default_domain, 输入空格清除域名): " INPUT_DOMAIN
+    if [ "$INPUT_DOMAIN" = " " ]; then
+        DOMAIN=""
+    else
+        DOMAIN="${INPUT_DOMAIN:-$default_domain}"
+    fi
+else
+    read -p "👉 请输入解析好的域名 (若建纯IP节点，请直接回车跳过): " DOMAIN
+fi
 echo "=========================================================="
 
-# 2. 根据菜单选择精准获取 IP
+# 更新并合并节点部署状态
+if [ "$CHOICE" -eq 1 ]; then
+    DEPLOYED_IPV6="true"
+    if [ "$DEPLOYED_IPV4" = "true" ]; then
+        echo "ℹ️ 检测到您已部署过 IPv4 节点，本次操作将同时保留/更新 IPv4 和 IPv6 节点。"
+    fi
+elif [ "$CHOICE" -eq 2 ]; then
+    DEPLOYED_IPV4="true"
+    if [ "$DEPLOYED_IPV6" = "true" ]; then
+        echo "ℹ️ 检测到您已部署过 IPv6 节点，本次操作将同时保留/更新 IPv4 和 IPv6 节点。"
+    fi
+elif [ "$CHOICE" -eq 3 ]; then
+    DEPLOYED_IPV4="true"
+    DEPLOYED_IPV6="true"
+fi
+
+# 2. 根据合并后的状态获取公网 IP 地址
 IP4=""
 IP6=""
 
-if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then
+if [ "$DEPLOYED_IPV6" = "true" ]; then
     echo "🔍 正在获取公网 IPv6 地址..."
     IP6=$(curl -sS6 --max-time 3 https://api64.ipify.org || curl -sS6 --max-time 3 https://ident.me)
     if [ -z "$IP6" ]; then
@@ -57,11 +118,25 @@ if [ "$CHOICE" -eq 1 ] || [ "$CHOICE" -eq 3 ]; then
     fi
 fi
 
-if [ "$CHOICE" -eq 2 ] || [ "$CHOICE" -eq 3 ]; then
+if [ "$DEPLOYED_IPV4" = "true" ]; then
     echo "🔍 正在获取公网 IPv4 地址..."
     IP4=$(curl -sS4 --max-time 3 https://ifconfig.me || curl -sS4 --max-time 3 https://api.ipify.org)
     if [ -z "$IP4" ]; then
         IP4=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n 1)
+    fi
+fi
+
+# 检查 IP 是否成功获取
+if [ -z "$DOMAIN" ]; then
+    if [ "$DEPLOYED_IPV6" = "true" ] && [ -z "$IP6" ]; then
+        echo "⚠️ 警告：未检测到公网 IPv6 地址，IPv6 节点可能无法正常工作！"
+    fi
+    if [ "$DEPLOYED_IPV4" = "true" ] && [ -z "$IP4" ]; then
+        echo "⚠️ 警告：未检测到公网 IPv4 地址，IPv4 节点可能无法正常工作！"
+    fi
+    if [ -z "$IP4" ] && [ -z "$IP6" ]; then
+        echo "❌ 错误：未能检测到任何公网 IP 地址，部署终止。"
+        exit 1
     fi
 fi
 
@@ -81,7 +156,8 @@ sysctl --system >/dev/null 2>&1
 # 调整网卡队列长度消除瓶颈
 for dev in /sys/class/net/*; do
     if [ -d "$dev" ]; then
-        ifconfig $(basename "$dev") txqueuelen 5000 >/dev/null 2>&1
+        dev_name=$(basename "$dev")
+        ip link set dev "$dev_name" txqueuelen 5000 >/dev/null 2>&1 || ifconfig "$dev_name" txqueuelen 5000 >/dev/null 2>&1
     fi
 done
 
@@ -97,9 +173,8 @@ elif command -v yum >/dev/null; then
   yum makecache -y >/dev/null 2>&1 && yum install -y curl openssl wget >/dev/null 2>&1
 fi
 
-# 4. 【核心重构】下载官方脚本到本地离线运行，彻底断开标准输入流，防止截断
+# 4. 下载官方脚本到本地离线运行，彻底断开标准输入流，防止截断
 echo "[2/4] 正在安全下载并安装 Hysteria 2 官方最新核心..."
-mkdir -p /etc/hysteria
 curl -fsSL https://get.hy2.sh -o /etc/hy2_auto/install_hy2.sh
 # 使用 </dev/null 强行关闭标准输入，彻底根治远程执行时的 EOF 冲突
 bash /etc/hy2_auto/install_hy2.sh </dev/null >/dev/null 2>&1
@@ -108,14 +183,31 @@ rm -f /etc/hy2_auto/install_hy2.sh
 # 5. TLS 证书与加速服务配置
 echo "[3/4] 正在配置 TLS 证书与加速服务..."
 if [ -z "$DOMAIN" ]; then
-    openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
+    # 无域名时，若证书已存在则无需重新生成
+    if [ ! -f /etc/hysteria/server.key ] || [ ! -f /etc/hysteria/server.crt ] || [ -n "$DEPLOYED_DOMAIN" ]; then
+        openssl req -x509 -nodes -newkey rsa:2048 -keyout /etc/hysteria/server.key -out /etc/hysteria/server.crt -days 3650 -subj "/CN=Anonymity" >/dev/null 2>&1
+    fi
     SNI_PARAM="?sni=Anonymity&insecure=1"
 else
-    curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
-    ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-    ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
-    ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
+    # 有域名时，若域名发生变化或证书文件缺失，才重新申请证书以避免 Let's Encrypt 频率限制
+    if [ "$DOMAIN" != "$DEPLOYED_DOMAIN" ] || [ ! -f /etc/hysteria/server.key ] || [ ! -f /etc/hysteria/server.crt ]; then
+        echo "🌐 正在使用 acme.sh 申请/更新域名证书..."
+        if [ ! -d ~/.acme.sh ]; then
+            curl -sSL https://get.acme.sh | sh -s email=myhy2remote@gmail.com
+        fi
+        ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+        ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
+        ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
+    else
+        echo "ℹ️ 检测到域名未发生变化且证书已存在，跳过证书申请。"
+    fi
     SNI_PARAM="?sni=$DOMAIN"
+fi
+
+# 确保证书文件生成成功
+if [ ! -f /etc/hysteria/server.key ] || [ ! -f /etc/hysteria/server.crt ]; then
+    echo "❌ 错误：TLS 证书文件不存在，配置生成失败！"
+    exit 1
 fi
 
 cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
@@ -138,15 +230,23 @@ rm -f /etc/hy2_auto/links.txt
 if [ -n "$DOMAIN" ]; then
     echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_域名加速版" >> /etc/hy2_auto/links.txt
 else
-    if [ "$CHOICE" -eq 1 ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
-    elif [ "$CHOICE" -eq 2 ] && [ -n "$IP4" ]; then
-        echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_纯IPv4_加速版" >> /etc/hy2_auto/links.txt
-    elif [ "$CHOICE" -eq 3 ]; then
+    # 结合已部署的协议类型生成相应链接
+    if [ "$DEPLOYED_IPV4" = "true" ] && [ "$DEPLOYED_IPV6" = "true" ]; then
         [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_双栈IPv6_加速版" >> /etc/hy2_auto/links.txt
         [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_双栈IPv4_加速版" >> /etc/hy2_auto/links.txt
+    elif [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
+        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_加速版" >> /etc/hy2_auto/links.txt
+    elif [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
+        echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_纯IPv4_加速版" >> /etc/hy2_auto/links.txt
     fi
 fi
+
+# 保存本次部署的状态
+cat << EOF_STATE > "$STATE_FILE"
+DEPLOYED_IPV4="$DEPLOYED_IPV4"
+DEPLOYED_IPV6="$DEPLOYED_IPV6"
+DEPLOYED_DOMAIN="$DOMAIN"
+EOF_STATE
 
 # 生成快捷查看命令 sd
 cat << 'EOF_SHOW' > /usr/local/bin/sd
