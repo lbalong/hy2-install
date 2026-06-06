@@ -39,7 +39,7 @@ else
 fi
 
 echo "=========================================================="
-echo "    Hysteria 2 高性能分流版（多节点共存优化版）"
+echo "    Hysteria 2 高性能分流版（流量混淆加速版）"
 echo "=========================================================="
 echo " 1. 部署/增加【纯 IPv6】高性能节点"
 echo " 2. 部署/增加【纯 IPv4】高性能节点"
@@ -167,6 +167,8 @@ net.ipv6.ip6frag_low_thresh=19660800
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 EOF_SYSCTL
+# 强制即时载入优化参数
+sysctl -p /etc/sysctl.d/99-hy2-performance.conf >/dev/null 2>&1
 sysctl --system >/dev/null 2>&1
 
 # 调整网卡队列长度
@@ -220,8 +222,6 @@ else
         ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
         ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone
         ~/.acme.sh/acme.sh --install-cert -d "$DOMAIN" --key-file "/etc/hysteria/server.key" --fullchain-file "/etc/hysteria/server.crt"
-    else
-        echo "ℹ️ 检测到域名未发生变化且证书已存在，跳过证书申请。"
     fi
     SNI_PARAM="?sni=$DOMAIN"
 fi
@@ -232,6 +232,7 @@ if [ ! -f /etc/hysteria/server.key ] || [ ! -f /etc/hysteria/server.crt ]; then
     exit 1
 fi
 
+# 写入 Hysteria 2 配置文件，默认开启 salamander 流量混淆
 cat << EOF_HY2_YAML > /etc/hysteria/config.yaml
 listen: :$PORT
 tls:
@@ -240,6 +241,10 @@ tls:
 auth:
   type: password
   password: $PASSWORD
+obfs:
+  type: salamander
+  salamander:
+    password: $PASSWORD
 EOF_HY2_YAML
 
 chown -R hysteria:hysteria /etc/hysteria
@@ -271,20 +276,20 @@ if ! systemctl is-active --quiet hysteria-server; then
 fi
 echo "✅ Hysteria 2 服务启动成功，目前正在后台正常运行。"
 
-# 6. 精准拼接有效格式链接
+# 6. 精准拼接有效格式链接 (附加混淆参数)
 rm -f /etc/hy2_auto/links.txt
 
 if [ -n "$DOMAIN" ]; then
-    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM#Hy2_域名安全版" >> /etc/hy2_auto/links.txt
+    echo "hy2://$PASSWORD@$DOMAIN:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_域名混淆加速版" >> /etc/hy2_auto/links.txt
 else
     # 结合已部署的协议类型生成相应链接
     if [ "$DEPLOYED_IPV4" = "true" ] && [ "$DEPLOYED_IPV6" = "true" ]; then
-        [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_双栈IPv6_安全伪装版" >> /etc/hy2_auto/links.txt
-        [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_双栈IPv4_安全伪装版" >> /etc/hy2_auto/links.txt
+        [ -n "$IP6" ] && echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv6_混淆加速版" >> /etc/hy2_auto/links.txt
+        [ -n "$IP4" ] && echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_双栈IPv4_混淆加速版" >> /etc/hy2_auto/links.txt
     elif [ "$DEPLOYED_IPV6" = "true" ] && [ -n "$IP6" ]; then
-        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM#Hy2_纯IPv6_安全伪装版" >> /etc/hy2_auto/links.txt
+        echo "hy2://$PASSWORD@[$IP6]:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv6_混淆加速版" >> /etc/hy2_auto/links.txt
     elif [ "$DEPLOYED_IPV4" = "true" ] && [ -n "$IP4" ]; then
-        echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM#Hy2_纯IPv4_安全伪装版" >> /etc/hy2_auto/links.txt
+        echo "hy2://$PASSWORD@$IP4:$PORT$SNI_PARAM&obfs=salamander&obfs-password=$PASSWORD#Hy2_纯IPv4_混淆加速版" >> /etc/hy2_auto/links.txt
     fi
 fi
 
