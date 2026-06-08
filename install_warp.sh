@@ -91,23 +91,19 @@ config_wg() {
   systemctl stop wg-quick@wg0 2>/dev/null || true
 
   # 生成安全的 wg0.conf
-  # 关键点：使用 Table = off 配合自定义路由，或者通过 PostUp 防失联
+  # 关键点：仅接管 IPv6 流量，彻底避开 IPv4 的 UDP 路由冲突！
   cat > "$WG_CONF" <<EOF
 [Interface]
 PrivateKey = ${PRIVKEY}
-Address = 172.16.0.2/32
 Address = ${ADDR6}
-DNS = 8.8.8.8, 8.8.4.4, 2001:4860:4860::8888
+DNS = 2001:4860:4860::8888
 MTU = 1280
-
-# 防失联规则：保证通过你原来的 VPS IP 进来的流量（如 SSH、hy2 客户端连接）原路返回
-PostUp = ip -4 rule add from ${MAIN_IP} lookup main
-PostDown = ip -4 rule delete from ${MAIN_IP} lookup main
 
 [Peer]
 PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
-# 接管全局 IPv4 和 IPv6 流量
-AllowedIPs = 0.0.0.0/0, ::/0
+# 【核心修改】只接管 IPv6！不碰 0.0.0.0/0！
+# 这样你的 TUIC (IPv4)、SSH 等所有原生业务完全不受影响！
+AllowedIPs = ::/0
 Endpoint = 162.159.192.1:2408
 EOF
 
@@ -134,9 +130,9 @@ verify() {
   step "验证最终解锁状态"
   
   local WARP_IP
-  WARP_IP=$(curl -fsSL --max-time 10 https://api.ip.sb/ip 2>/dev/null)
+  WARP_IP=$(curl -fsSL -6 --max-time 10 https://api.ip.sb/ip 2>/dev/null)
   
-  echo -e "\n  当前全局出站 IP: \033[1;32m${WARP_IP}\033[0m"
+  echo -e "\n  当前 IPv6 出站 IP: \033[1;32m${WARP_IP}\033[0m (全自动解锁路线)"
   
   local CODE
   CODE=$(curl -fsSL -o /dev/null -w "%{http_code}" --max-time 10 "https://generativelanguage.googleapis.com/")
@@ -161,7 +157,7 @@ clean_old() {
 
 main() {
   echo -e "\n\033[1;36m===================================================\033[0m"
-  echo -e "\033[1m  WARP for Gemini 全局解锁脚本 (v4 节点直连版)\033[0m"
+  echo -e "\033[1m  WARP for Gemini 智能解锁脚本 (IPv6 分流版)\033[0m"
   echo -e "\033[1;36m===================================================\033[0m\n"
   
   check_root
@@ -172,10 +168,9 @@ main() {
   start_wg
   verify
   
-  echo -e "\n\033[1;32m🎉 恭喜！安装已全部完成！\033[0m"
-  echo -e "现在你的 VPS 已经全局挂载了 WARP。\n"
-  echo -e "👉 \033[1m你不需要修改任何配置，直接在 Mac 的 v2rayn/浏览器里使用你的 hy2/tuic 节点打开 Gemini 即可！\033[0m"
-  echo -e "因为现在 VPS 上所有的对外请求，都会自动走 WARP 的原生通道！"
+  echo -e "\n\033[1;32m🎉 恭喜！IPv6 智能解锁已安装完成！\033[0m"
+  echo -e "👉 \033[1m你的 IPv4 流量 (TUIC/SSH等) 原封不动，完全恢复正常！\033[0m"
+  echo -e "👉 \033[1mGemini、ChatGPT 等大厂 AI 自动走新增的 IPv6 通道，完美解锁！\033[0m"
 }
 
 main "$@"
