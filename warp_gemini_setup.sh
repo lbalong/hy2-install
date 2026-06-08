@@ -37,7 +37,6 @@ info "安装依赖包..."
 if command -v apt-get &>/dev/null; then
   apt-get update -y -qq
   apt-get install -y -qq curl tar ca-certificates jq
-  apt-get install -y -qq curl tar ca-certificates jq
 elif command -v yum &>/dev/null; then
   yum install -y -q curl tar ca-certificates jq
 else
@@ -111,7 +110,7 @@ DNS = 1.1.1.1
 
 [Peer]
 PublicKey = ${PUBLIC_KEY}
-Endpoint = \$1
+Endpoint = $1
 AllowedIPs = 0.0.0.0/0
 
 [Socks5]
@@ -121,32 +120,32 @@ EOF
 
 CONNECTED=false
 for EP in "${ENDPOINTS[@]}"; do
-  info "尝试端点 \$EP ..."
-  write_conf "\$EP"
+  info "尝试端点 $EP ..."
+  write_conf "$EP"
   /usr/local/bin/wireproxy -c /etc/wireproxy.conf >/dev/null 2>&1 &
-  WP_PID=\$!
+  WP_PID=$!
   for i in {1..6}; do
     sleep 1
-    RESULT=\$(curl -s --max-time 3 --socks5-hostname 127.0.0.1:40000 \
+    RESULT=$(curl -s --max-time 3 --socks5-hostname 127.0.0.1:40000 \
               https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
-    if echo "\$RESULT" | grep -q "warp=on\|warp=plus"; then
+    if echo "$RESULT" | grep -q "warp=on\|warp=plus"; then
       CONNECTED=true
       break
     fi
   done
-  if [ "\$CONNECTED" = true ]; then
-    success "端点 \$EP 连接成功！"
+  if [ "$CONNECTED" = true ]; then
+    success "端点 $EP 连接成功！"
     break
   fi
-  kill \$WP_PID 2>/dev/null || true
-  wait \$WP_PID 2>/dev/null || true
+  kill $WP_PID 2>/dev/null || true
+  wait $WP_PID 2>/dev/null || true
 done
 
-[ "\$CONNECTED" = false ] && error "所有端点均连接失败，请检查 VPS 防火墙是否放行 UDP 出站流量。"
+[ "$CONNECTED" = false ] && error "所有端点均连接失败，请检查 VPS 防火墙是否放行 UDP 出站流量。"
 
 # 停掉探测进程，改由 systemd 管理
-kill \$WP_PID 2>/dev/null || true
-wait \$WP_PID 2>/dev/null || true
+kill $WP_PID 2>/dev/null || true
+wait $WP_PID 2>/dev/null || true
 
 # ── 7. 写入 systemd 服务 ──────────────────────────────────────────
 info "配置 systemd 服务..."
@@ -170,23 +169,23 @@ systemctl enable --now wireproxy
 sleep 3
 
 # ── 8. 最终验证 ───────────────────────────────────────────────────
-WARP_TRACE=\$(curl -s --max-time 5 --socks5-hostname 127.0.0.1:40000 \
+WARP_TRACE=$(curl -s --max-time 5 --socks5-hostname 127.0.0.1:40000 \
              https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
-GEMINI_CODE=\$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
+GEMINI_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
               --socks5-hostname 127.0.0.1:40000 \
               https://generativelanguage.googleapis.com/ 2>/dev/null || echo "000")
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-if echo "\$WARP_TRACE" | grep -q "warp=on\|warp=plus"; then
+if echo "$WARP_TRACE" | grep -q "warp=on\|warp=plus"; then
   success "WARP SOCKS5 代理运行正常！"
 else
   warn "WARP 代理状态未确认，请手动检查：systemctl status wireproxy"
 fi
-if [ "\$GEMINI_CODE" -eq 200 ] || [ "\$GEMINI_CODE" -eq 403 ] || [ "\$GEMINI_CODE" -eq 404 ]; then
-  success "Gemini API 可访问（HTTP \$GEMINI_CODE）！"
+if [ "$GEMINI_CODE" -eq 200 ] || [ "$GEMINI_CODE" -eq 403 ] || [ "$GEMINI_CODE" -eq 404 ]; then
+  success "Gemini API 可访问（HTTP $GEMINI_CODE）！"
 else
-  warn "Gemini API 响应码：\$GEMINI_CODE（可能需要在代理工具中配置分流规则）"
+  warn "Gemini API 响应码：$GEMINI_CODE（可能需要在代理工具中配置分流规则）"
 fi
 echo ""
 echo "  本地 SOCKS5 代理地址：127.0.0.1:40000"
