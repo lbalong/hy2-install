@@ -9,3 +9,5 @@ vless:装vless+reality协议节点
 vless-1:vless套CDN节点
 
 hy2-ipv6：可以建ipv6和ipv4节点
+
+install_warp：解锁gemini,antigravity
