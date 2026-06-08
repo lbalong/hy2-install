@@ -14,9 +14,11 @@ warn()    { echo -e "${YELLOW}[警告]${NC} $1"; }
 error()   { echo -e "${RED}[错误]${NC} $1"; exit 1; }
 [ "$EUID" -ne 0 ] && error "请使用 root 权限运行本脚本。"
 ARCH=$(uname -m)
-[ "$ARCH" = "x86_64" ]  && ARCH_TAG="amd64" || \
-[ "$ARCH" = "aarch64" ] && ARCH_TAG="arm64" || \
-  error "不支持的架构：$ARCH"
+case "$ARCH" in
+  x86_64)  ARCH_TAG="amd64" ;;
+  aarch64) ARCH_TAG="arm64" ;;
+  *) error "不支持的架构：$ARCH" ;;
+esac
 # ── 1. 停止旧的官方 warp-svc（如存在）────────────────────────────
 info "停止官方 cloudflare-warp 服务（如存在）..."
 systemctl stop warp-svc    2>/dev/null || true
