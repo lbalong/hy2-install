@@ -133,29 +133,70 @@ warp-cli --accept-tos mode proxy
 info "Setting proxy port to 40000..."
 warp-cli --accept-tos proxy port 40000
 
-# Connect to WARP
-info "Connecting to Cloudflare WARP..."
-warp-cli --accept-tos connect
+# ------------------------------------------------------------------------------
+# 3. Connection Probing Loop (WireGuard Ports & MASQUE Protocol Fallbacks)
+# ------------------------------------------------------------------------------
+# List of known endpoints and ports to probe (Standard 2408, IPSec 500, IPSec 4500, etc.)
+ENDPOINTS=(
+    "DEFAULT:2408"
+    "162.159.193.10:500"
+    "162.159.193.10:4500"
+    "162.159.192.1:500"
+    "162.159.192.1:4500"
+    "188.114.96.1:500"
+    "188.114.96.1:4500"
+)
 
-# ------------------------------------------------------------------------------
-# 3. Connection Verification
-# ------------------------------------------------------------------------------
-info "Waiting for WARP connection to establish (up to 10 seconds)..."
 CONNECTED=false
-for i in {1..10}; do
-    WARP_STATUS=$(warp-cli status)
-    if [[ "$WARP_STATUS" == *"Connected"* || "$WARP_STATUS" == *"connected"* ]]; then
-        CONNECTED=true
-        break
-    fi
-    sleep 1
-done
 
+probe_connections() {
+    local protocol=$1
+    info "Setting tunnel protocol to $protocol..."
+    warp-cli --accept-tos tunnel protocol set "$protocol" >/dev/null 2>&1
+
+    for EP in "${ENDPOINTS[@]}"; do
+        if [ "$EP" = "DEFAULT:2408" ]; then
+            info "Probing default endpoint with $protocol..."
+            warp-cli --accept-tos clear-custom-endpoint >/dev/null 2>&1
+        else
+            info "Probing custom endpoint $EP with $protocol..."
+            warp-cli --accept-tos set-custom-endpoint "$EP" >/dev/null 2>&1
+        fi
+        
+        # Disconnect and Connect
+        warp-cli --accept-tos disconnect >/dev/null 2>&1
+        warp-cli --accept-tos connect >/dev/null 2>&1
+        
+        # Wait up to 6 seconds to verify connection status
+        for i in {1..6}; do
+            WARP_STATUS=$(warp-cli status)
+            if [[ "$WARP_STATUS" == *"Connected"* || "$WARP_STATUS" == *"connected"* ]]; then
+                CONNECTED=true
+                break 2
+            fi
+            sleep 1
+        done
+        warn "Endpoint $EP with $protocol failed to connect. Retrying next..."
+    done
+}
+
+# Phase 1: Try WireGuard protocol with various ports
+probe_connections "WARP"
+
+# Phase 2: If WireGuard fails, switch to MASQUE and try again
+if [ "$CONNECTED" = false ]; then
+    warn "All WireGuard endpoints failed. Switching to MASQUE protocol (HTTP/3 over port 443)..."
+    probe_connections "MASQUE"
+fi
+
+# ------------------------------------------------------------------------------
+# 4. Connection Verification
+# ------------------------------------------------------------------------------
 if [ "$CONNECTED" = true ]; then
-    success "Cloudflare WARP client status is: Connected!"
-else
-    warn "WARP connection is taking longer than expected. Current status:"
+    success "Cloudflare WARP successfully connected!"
     warp-cli status
+else
+    error "Could not establish WARP connection after probing multiple endpoints and protocols. Please check VPS firewall settings."
 fi
 
 # Test connection via SOCKS5 proxy
@@ -164,7 +205,7 @@ WARP_CHECK=$(curl -s --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.co
 if [[ "$WARP_CHECK" == *"warp=on"* || "$WARP_CHECK" == *"warp=plus"* ]]; then
     success "Cloudflare WARP SOCKS5 proxy is successfully routed and running on port 40000!"
 else
-    warn "WARP SOCKS5 proxy routing test failed or is pending. Output of trace: $WARP_CHECK"
+    warn "WARP SOCKS5 proxy routing test failed. Trace: $WARP_CHECK"
 fi
 
 # Test Gemini API endpoint connectivity
@@ -173,7 +214,7 @@ GEMINI_TEST=$(curl -s -I -o /dev/null -w "%{http_code}" --socks5-hostname 127.0.
 if [ "$GEMINI_TEST" -eq 200 ] || [ "$GEMINI_TEST" -eq 403 ] || [ "$GEMINI_TEST" -eq 404 ]; then
     success "Successfully connected to Gemini API Endpoint via WARP (HTTP $GEMINI_TEST)!"
 else
-    warn "Unable to reach Gemini API Endpoint (HTTP $GEMINI_TEST). SOCKS5 Proxy may not be fully resolved yet."
+    warn "Unable to reach Gemini API Endpoint (HTTP $GEMINI_TEST)."
 fi
 
 echo -e "\n=========================================================================="
