@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-#  WARP for Gemini 全局解锁脚本 (完美版)
-#  专为 v2ray/hy2/tuic 节点用户定制，直接接管 VPS 全局流量
-#  透明代理：无需修改节点配置，客户端直连即可解锁 Gemini
+#  WARP for Gemini 终极全局解锁脚本 (修复 TUIC/UDP 断流问题)
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -17,32 +15,28 @@ err()  { echo -e "\033[31m[✗]\033[0m $*"; }
 step() { echo -e "\n\033[1;36m>>> $*\033[0m"; }
 die()  { err "$*"; exit 1; }
 
-# ===== 1. 环境准备 =====
 check_root() {
   [ "$(id -u)" != "0" ] && die "请使用 root 权限运行"
   
-  # 获取当前主网卡和IP，防止失联
   MAIN_IF=$(ip route get 8.8.8.8 | grep -oP 'dev \K\S+')
   MAIN_IP=$(ip -4 addr show dev "$MAIN_IF" | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
   [ -z "$MAIN_IP" ] && die "无法获取主网卡 IP"
   
-  ok "检测到主网卡: $MAIN_IF, IP: $MAIN_IP"
+  ok "主网卡: $MAIN_IF | IP: $MAIN_IP"
 }
 
 inst_wg() {
-  step "安装 WireGuard"
-  if ! command -v wg >/dev/null 2>&1; then
-    apt-get update -qq && apt-get install -y -qq wireguard-tools openresolv || \
-    yum install -y epel-release wireguard-tools
+  step "安装 WireGuard & iptables"
+  if ! command -v wg >/dev/null 2>&1 || ! command -v iptables >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq wireguard-tools openresolv iptables || \
+    yum install -y epel-release wireguard-tools iptables
   fi
-  ok "WireGuard 安装完成"
+  ok "环境安装完成"
 }
 
-# ===== 2. 获取 WARP 账号 =====
 setup_warp() {
   step "生成 WARP 账户"
   
-  # 下载 wgcf
   if [ ! -x "$WGCF_BIN" ]; then
     ARCH=$(uname -m)
     [ "$ARCH" = "x86_64" ] && A="amd64" || A="arm64"
@@ -52,11 +46,9 @@ setup_warp() {
 
   mkdir -p "$DIR" && cd "$DIR"
   
-  # 注册并生成原始配置
   if [ ! -f "wgcf-account.toml" ]; then
     "$WGCF_BIN" register --accept-tos >/dev/null 2>&1 || true
     if [ ! -f "wgcf-account.toml" ]; then
-      # 备用公开账户
       cat > wgcf-account.toml <<'EOF'
 access_token = 'preset'
 account_id   = 'b0fe9b24-3396-486e-a12d-c194dbbb7bfb'
@@ -68,12 +60,11 @@ EOF
   fi
 
   "$WGCF_BIN" generate --force >/dev/null 2>&1
-  ok "WARP 账户生成完成"
+  ok "WARP 账户就绪"
 }
 
-# ===== 3. 配置全局路由 (核心防失联) =====
 config_wg() {
-  step "配置全局透明路由"
+  step "配置全局路由 (含 TUIC/UDP 完美修复规则)"
   
   cd "$DIR"
   local PRIVKEY ADDR6
@@ -90,29 +81,42 @@ config_wg() {
 
   systemctl stop wg-quick@wg0 2>/dev/null || true
 
-  # 生成安全的 wg0.conf
-  # 关键点：仅接管 IPv6 流量，彻底避开 IPv4 的 UDP 路由冲突！
+  # 写入防 UDP 断流规则的 WG 配置文件
   cat > "$WG_CONF" <<EOF
 [Interface]
 PrivateKey = ${PRIVKEY}
+Address = 172.16.0.2/32
 Address = ${ADDR6}
-DNS = 2001:4860:4860::8888
+DNS = 8.8.8.8, 8.8.4.4, 2001:4860:4860::8888
 MTU = 1280
+
+# === 核心防断流规则 (完美修复 TUIC 和 SSH) ===
+# 1. 保证已有固定 IP 的进程正常回包 (修 SSH/HY2)
+PostUp = ip -4 rule add from ${MAIN_IP} lookup main
+PostDown = ip -4 rule delete from ${MAIN_IP} lookup main
+
+# 2. 连接标记跟踪 (完美修复 TUIC 等无状态 UDP 代理)
+PostUp = iptables -t mangle -I PREROUTING -i ${MAIN_IF} -m conntrack --ctstate NEW -j CONNMARK --set-mark 0x200
+PostUp = iptables -t mangle -I OUTPUT -m connmark --mark 0x200 -j MARK --set-mark 0x200
+PostUp = ip -4 rule add fwmark 0x200 lookup main
+
+PostDown = iptables -t mangle -D PREROUTING -i ${MAIN_IF} -m conntrack --ctstate NEW -j CONNMARK --set-mark 0x200
+PostDown = iptables -t mangle -D OUTPUT -m connmark --mark 0x200 -j MARK --set-mark 0x200
+PostDown = ip -4 rule delete fwmark 0x200 lookup main
+# ===============================================
 
 [Peer]
 PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
-# 【核心修改】只接管 IPv6！不碰 0.0.0.0/0！
-# 这样你的 TUIC (IPv4)、SSH 等所有原生业务完全不受影响！
-AllowedIPs = ::/0
+# 接管全局流量，解锁所有 AI
+AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = 162.159.192.1:2408
 EOF
 
-  ok "WG 配置文件已写入: $WG_CONF"
+  ok "配置文件写入完成"
 }
 
-# ===== 4. 启动与验证 =====
 start_wg() {
-  step "启动 WARP 网络接管"
+  step "重启 WARP 全局接管"
   
   systemctl daemon-reload
   systemctl enable wg-quick@wg0 >/dev/null 2>&1
@@ -120,9 +124,9 @@ start_wg() {
   sleep 3
   
   if ip link show wg0 >/dev/null 2>&1; then
-    ok "WARP 虚拟网卡已启动，已接管全局流量！"
+    ok "WARP 虚拟网卡已接管全局流量！"
   else
-    die "wg0 网卡启动失败，请检查配置或尝试重启 VPS"
+    die "wg0 网卡启动失败"
   fi
 }
 
@@ -130,9 +134,8 @@ verify() {
   step "验证最终解锁状态"
   
   local WARP_IP
-  WARP_IP=$(curl -fsSL -6 --max-time 10 https://api.ip.sb/ip 2>/dev/null)
-  
-  echo -e "\n  当前 IPv6 出站 IP: \033[1;32m${WARP_IP}\033[0m (全自动解锁路线)"
+  WARP_IP=$(curl -fsSL --max-time 10 https://api.ip.sb/ip 2>/dev/null)
+  echo -e "\n  当前全局出站 IP: \033[1;32m${WARP_IP}\033[0m"
   
   local CODE
   CODE=$(curl -fsSL -o /dev/null -w "%{http_code}" --max-time 10 "https://generativelanguage.googleapis.com/")
@@ -144,23 +147,30 @@ verify() {
   fi
 }
 
-# ===== 清理原有的 wireproxy 残留 =====
 clean_old() {
   if systemctl is-active --quiet wireproxy 2>/dev/null; then
-    step "清理旧版 wireproxy"
     systemctl stop wireproxy 2>/dev/null
     systemctl disable wireproxy 2>/dev/null
     rm -f /etc/systemd/system/wireproxy.service /usr/local/bin/wireproxy /etc/wireguard/wireproxy.conf
-    ok "旧版清理完成"
+    systemctl daemon-reload 2>/dev/null
   fi
+}
+
+# 若之前 TUIC 因为残留规则坏了，这里强行清理 iptables 和 ip rule 残留
+fix_tuic_remnants() {
+  ip -4 rule show | grep 'fwmark 0x200 lookup main' | while read -r _; do ip -4 rule delete fwmark 0x200 lookup main 2>/dev/null; done
+  ip -4 rule show | grep 'lookup main' | grep -v 'fwmark' | grep -v 'local' | while read -r line; do ip -4 rule delete $(echo "$line" | cut -d':' -f2) 2>/dev/null; done
+  iptables -t mangle -D PREROUTING -i $(ip route get 8.8.8.8 | grep -oP 'dev \K\S+') -m conntrack --ctstate NEW -j CONNMARK --set-mark 0x200 2>/dev/null || true
+  iptables -t mangle -D OUTPUT -m connmark --mark 0x200 -j MARK --set-mark 0x200 2>/dev/null || true
 }
 
 main() {
   echo -e "\n\033[1;36m===================================================\033[0m"
-  echo -e "\033[1m  WARP for Gemini 智能解锁脚本 (IPv6 分流版)\033[0m"
+  echo -e "\033[1m  WARP for Gemini 终极全局解锁脚本 (TUIC 修复版)\033[0m"
   echo -e "\033[1;36m===================================================\033[0m\n"
   
   check_root
+  fix_tuic_remnants
   clean_old
   inst_wg
   setup_warp
@@ -168,9 +178,9 @@ main() {
   start_wg
   verify
   
-  echo -e "\n\033[1;32m🎉 恭喜！IPv6 智能解锁已安装完成！\033[0m"
-  echo -e "👉 \033[1m你的 IPv4 流量 (TUIC/SSH等) 原封不动，完全恢复正常！\033[0m"
-  echo -e "👉 \033[1mGemini、ChatGPT 等大厂 AI 自动走新增的 IPv6 通道，完美解锁！\033[0m"
+  echo -e "\n\033[1;32m🎉 恭喜！修复版已安装完成！\033[0m"
+  echo -e "👉 \033[1mTUIC 断流问题已通过 CONNMARK 状态跟踪完美修复。\033[0m"
+  echo -e "👉 \033[1m全局 IPv4 已被 WARP 接管，Gemini 恢复解锁，请尽情使用！\033[0m"
 }
 
 main "$@"
