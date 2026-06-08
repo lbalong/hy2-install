@@ -1,9 +1,9 @@
-/bin/sh
+#!/bin/sh
 # ==============================================================================
 #  OpenWrt iStore 一键安装脚本 (One-Click iStore Installer)
 #  作者: GitHub Deployer
-#  适用系统: OpenWrt 21.02 / 22.03 / 23.05 / 25.12 及以上版本
-#  支持架构: 推荐 x86_64, arm64 (其他架构如果 opkg 兼容亦可尝试)
+#  适用系统: OpenWrt 21.02 / 22.03 / 23.05 (使用 opkg 的版本)
+#  不支持系统: OpenWrt 25.12.x 及以上版本 (使用 apk 的版本)
 # ==============================================================================
 # 颜色定义
 RED='\033[0;31m'
@@ -29,7 +29,6 @@ fi
 echo -e "${YELLOW}[1/6] 正在检测系统环境...${NC}"
 if [ ! -f "/etc/openwrt_release" ]; then
     echo -e "${RED}[错误] 未检测到 /etc/openwrt_release，此脚本仅适用于 OpenWrt 系统！${NC}"
-    # 允许用户强制继续，以防某些极个别定制固件删除了该文件
     read -p "是否强制继续？(y/N): " force_run
     if [ "$force_run" != "y" ] && [ "$force_run" != "Y" ]; then
         exit 1
@@ -38,6 +37,23 @@ else
     . /etc/openwrt_release
     echo -e "${GREEN}[成功] 检测到系统: ${DISTRIB_DESCRIPTION:-OpenWrt}${NC}"
     echo -e "${GREEN}[成功] 系统版本: ${DISTRIB_RELEASE:-未知}${NC}"
+fi
+# ==============================================================================
+#  关键检测：OpenWrt 25.x 架构及 apk 包管理器检测
+# ==============================================================================
+if command -v apk >/dev/null 2>&1 || [ ! -f "/bin/opkg" ] && [ -f "/sbin/apk" ]; then
+    echo -e "${RED}[错误] 检测到您的路由器正在使用新一代 apk 包管理器 (OpenWrt 25.x+)。${NC}"
+    echo -e "${YELLOW}说明: 从 OpenWrt 25.12 开始，官方已废弃 opkg，改用 Alpine 的 apk 包管理器。${NC}"
+    echo -e "${YELLOW}      由于 iStore (luci-app-store) 底层完全依赖 opkg 命令和 .ipk 包生态，${NC}"
+    echo -e "${YELLOW}      目前 iStore 官方和社区【尚未适配】使用 apk 的 OpenWrt 25.x 系统。${NC}"
+    echo ""
+    echo -e "${CYAN}建议解决方案:${NC}"
+    echo -e "  ${GREEN}方案 1 (推荐)${NC}: 将路由器系统降级到 ${CYAN}OpenWrt 23.05${NC} 或 ${CYAN}ImmortalWrt 23.05${NC}。"
+    echo -e "                这些版本依然使用 opkg，可以完美运行 iStore 和全部插件。"
+    echo -e "  ${GREEN}方案 2${NC}: 在当前的 25.x 系统中，直接使用系统的软件包功能。"
+    echo -e "          进入路由器后台 ->【系统】->【软件包】(后台会自动使用 apk 驱动)，直接搜索安装您需要的插件。"
+    echo -e "${CYAN}======================================================${NC}"
+    exit 1
 fi
 # 检测 CPU 架构
 ARCH=$(sed -n -e 's/^Architecture: *\([^ ]\+\) *$/\1/p' /rom/usr/lib/opkg/info/libc.control /usr/lib/opkg/info/libc.control 2>/dev/null | head -n 1)
