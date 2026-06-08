@@ -45,12 +45,10 @@ fi
 
 # ── 3. 下载 wgcf（自动获取最新版本号）───────────────────────────
 info "获取 wgcf 最新版本号..."
-WGCF_VER=$(curl -fsSL "https://api.github.com/repos/ViRb3/wgcf/releases/latest" \
-           | jq -r '.tag_name' | tr -d 'v')
+WGCF_VER=$(curl -fsSL "https://api.github.com/repos/ViRb3/wgcf/releases/latest" | jq -r '.tag_name' | tr -d 'v')
 [ -z "$WGCF_VER" ] && error "无法获取 wgcf 版本号，请检查网络。"
 info "下载 wgcf v${WGCF_VER}..."
-curl -fsSL -o /usr/local/bin/wgcf \
-  "https://github.com/ViRb3/wgcf/releases/download/v${WGCF_VER}/wgcf_${WGCF_VER}_linux_${ARCH_TAG}"
+curl -fsSL -o /usr/local/bin/wgcf "https://github.com/ViRb3/wgcf/releases/download/v${WGCF_VER}/wgcf_${WGCF_VER}_linux_${ARCH_TAG}"
 chmod +x /usr/local/bin/wgcf
 
 if [ ! -f /usr/local/bin/wgcf ]; then
@@ -86,8 +84,7 @@ info "账号注册成功，私钥已提取。"
 
 # ── 5. 下载 wireproxy ─────────────────────────────────────────────
 info "下载 wireproxy..."
-curl -fsSL "https://github.com/windtf/wireproxy/releases/latest/download/wireproxy_linux_${ARCH_TAG}.tar.gz" \
-  | tar -xz -C /usr/local/bin/
+curl -fsSL "https://github.com/windtf/wireproxy/releases/latest/download/wireproxy_linux_${ARCH_TAG}.tar.gz" | tar -xz -C /usr/local/bin/
 chmod +x /usr/local/bin/wireproxy
 
 # ── 6. 逐一探测可用 Endpoint ─────────────────────────────────────
@@ -126,8 +123,7 @@ for EP in "${ENDPOINTS[@]}"; do
   WP_PID=$!
   for i in {1..6}; do
     sleep 1
-    RESULT=$(curl -s --max-time 3 --socks5-hostname 127.0.0.1:40000 \
-              https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
+    RESULT=$(curl -s --max-time 3 --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
     if echo "$RESULT" | grep -q "warp=on\|warp=plus"; then
       CONNECTED=true
       break
@@ -169,11 +165,8 @@ systemctl enable --now wireproxy
 sleep 3
 
 # ── 8. 最终验证 ───────────────────────────────────────────────────
-WARP_TRACE=$(curl -s --max-time 5 --socks5-hostname 127.0.0.1:40000 \
-             https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
-GEMINI_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 \
-              --socks5-hostname 127.0.0.1:40000 \
-              https://generativelanguage.googleapis.com/ 2>/dev/null || echo "000")
+WARP_TRACE=$(curl -s --max-time 5 --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
+GEMINI_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 --socks5-hostname 127.0.0.1:40000 https://generativelanguage.googleapis.com/ 2>/dev/null || echo "000")
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
