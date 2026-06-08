@@ -1,11 +1,12 @@
 #!/bin/bash
 
 # ==============================================================================
-# Cloudflare WARP Gemini Unlocker - VPS One-Click Installer
+# Cloudflare WARP Gemini Unlocker - VPS One-Click Installer (Ultra Robust Edition)
 # ==============================================================================
 # Supported OS: Debian, Ubuntu, CentOS, RHEL, Rocky Linux, AlmaLinux
-# Purpose: Install Cloudflare WARP in SOCKS5 proxy mode (Port 40000)
-#          to bypass Google Gemini datacenter IP restrictions.
+# Virtualization: Compatible with KVM, OpenVZ, LXC, Docker (100% User-space)
+# Port target: SOCKS5 proxy on 127.0.0.1:40000
+# Technology: wgcf (WARP account registration) + wireproxy (Go-based SOCKS5 proxy)
 # ==============================================================================
 
 # Output formatting colors
@@ -28,188 +29,192 @@ fi
 
 # Detect system architecture
 ARCH=$(uname -m)
-if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "aarch64" ]; then
-    error "Unsupported architecture: $ARCH. Cloudflare WARP only supports amd64 (x86_64) and arm64 (aarch64)."
+if [ "$ARCH" = "x86_64" ]; then
+    WGCF_ARCH="amd64"
+    WP_ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ]; then
+    WGCF_ARCH="arm64"
+    WP_ARCH="arm64"
+else
+    error "Unsupported architecture: $ARCH. Only amd64 (x86_64) and arm64 (aarch64) are supported."
 fi
 
-# Detect OS
+# Detect OS package manager
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS_ID=$ID
-    OS_LIKE=$ID_LIKE
 else
-    error "Cannot determine the OS version. File /etc/os-release not found."
+    error "Cannot determine the OS version."
 fi
 
-info "Detecting system OS: $OS_ID ($ARCH)"
+# ------------------------------------------------------------------------------
+# 1. Clean Up Buggy Official Cloudflare-WARP Client
+# ------------------------------------------------------------------------------
+info "Disabling official cloudflare-warp client to prevent conflicts..."
+systemctl stop warp-svc >/dev/null 2>&1 || true
+systemctl disable warp-svc >/dev/null 2>&1 || true
 
 # ------------------------------------------------------------------------------
-# 1. Install Cloudflare WARP Repository and Package
+# 2. Install Dependencies
 # ------------------------------------------------------------------------------
-install_warp() {
-    case "$OS_ID" in
-        ubuntu|debian)
-            info "Installing/updating dependencies for Debian/Ubuntu..."
-            apt-get update -y
-            apt-get install -y curl gpg lsb-release ca-certificates
-
-            info "Adding Cloudflare GPG Key..."
-            curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-
-            info "Adding Cloudflare Repository..."
-            echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/cloudflare-client.list
-
-            info "Installing/updating cloudflare-warp..."
-            apt-get update -y
-            apt-get install -y cloudflare-warp
-            ;;
-        centos|rhel|rocky|alma)
-            info "Installing/updating dependencies for RHEL/CentOS-like system..."
-            yum install -y curl ca-certificates
-
-            info "Adding Cloudflare Repository & GPG Key..."
-            rpm --import https://pkg.cloudflareclient.com/pubkey.gpg
-            curl -fsSL https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo | tee /etc/yum.repos.d/cloudflare-warp.repo
-
-            info "Installing/updating cloudflare-warp..."
-            yum update -y
-            yum install -y cloudflare-warp
-            ;;
-        *)
-            if [[ "$OS_LIKE" =~ "debian" || "$OS_LIKE" =~ "ubuntu" ]]; then
-                info "System looks like Debian/Ubuntu. Proceeding with apt install..."
-                apt-get update -y
-                apt-get install -y curl gpg lsb-release ca-certificates
-                curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-                CODENAME=$(lsb_release -cs)
-                echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $CODENAME main" | tee /etc/apt/sources.list.d/cloudflare-client.list
-                apt-get update -y
-                apt-get install -y cloudflare-warp
-            elif [[ "$OS_LIKE" =~ "rhel" || "$OS_LIKE" =~ "centos" || "$OS_LIKE" =~ "fedora" ]]; then
-                info "System looks like RHEL/CentOS. Proceeding with yum install..."
-                yum install -y curl ca-certificates
-                rpm --import https://pkg.cloudflareclient.com/pubkey.gpg
-                curl -fsSL https://pkg.cloudflareclient.com/cloudflare-warp-ascii.repo | tee /etc/yum.repos.d/cloudflare-warp.repo
-                yum update -y
-                yum install -y cloudflare-warp
-            else
-                error "Unsupported OS: $OS_ID. Please install cloudflare-warp manually."
-            fi
-            ;;
-    esac
-}
-
-install_warp
-
-# Ensure warp-svc is running
-info "Starting and enabling cloudflare-warp service..."
-systemctl daemon-reload
-systemctl enable warp-svc
-systemctl restart warp-svc
-
-# Wait for warp-svc to initialize
-sleep 2
-
-# ------------------------------------------------------------------------------
-# 2. Configure Cloudflare WARP (SOCKS5 Mode on Port 40000)
-# ------------------------------------------------------------------------------
-info "Configuring Cloudflare WARP..."
-
-# Clean up stale/old registration to ensure a fresh, working identity
-info "Resetting existing WARP registration..."
-warp-cli --accept-tos registration delete >/dev/null 2>&1 || true
-
-# Register new account
-info "Registering a new client..."
-if ! warp-cli --accept-tos registration new; then
-    error "Failed to register new WARP client. Please check warp-svc service status."
+info "Installing required packages..."
+if [ "$OS_ID" = "ubuntu" ] || [ "$OS_ID" = "debian" ]; then
+    apt-get update -y
+    apt-get install -y curl tar wget ca-certificates
+else
+    yum install -y curl tar wget ca-certificates
 fi
 
-# Set mode to proxy
-info "Setting mode to SOCKS5 proxy..."
-warp-cli --accept-tos mode proxy
+# ------------------------------------------------------------------------------
+# 3. Download wgcf and wireproxy
+# ------------------------------------------------------------------------------
+info "Downloading wgcf and wireproxy..."
+mkdir -p /usr/local/bin
 
-# Set proxy port to 40000
-info "Setting proxy port to 40000..."
-warp-cli --accept-tos proxy port 40000
+# Wgcf (WARP Configuration Generator)
+wget -qO /usr/local/bin/wgcf "https://github.com/ViRb3/wgcf/releases/latest/download/wgcf_linux_${WGCF_ARCH}"
+chmod +x /usr/local/bin/wgcf
+
+# Wireproxy (Go-based user-space WireGuard-to-SOCKS5 client)
+curl -fsSL "https://github.com/windtf/wireproxy/releases/latest/download/wireproxy_linux_${WP_ARCH}.tar.gz" | tar -xz -C /usr/local/bin/
+chmod +x /usr/local/bin/wireproxy
 
 # ------------------------------------------------------------------------------
-# 3. Connection Probing Loop (WireGuard Ports & MASQUE Protocol Fallbacks)
+# 4. Generate WARP WireGuard Account
 # ------------------------------------------------------------------------------
-# List of known endpoints and ports to probe (Standard 2408, IPSec 500, IPSec 4500, etc.)
+info "Registering a new Cloudflare WARP account via wgcf..."
+TEMP_DIR=$(mktemp -d)
+cd "$TEMP_DIR" || error "Failed to create temp directory."
+
+# Perform registration
+/usr/local/bin/wgcf register --accept-tos >/dev/null 2>&1
+if [ ! -f "wgcf-account.toml" ]; then
+    error "Failed to register WARP account. Please check your network connection."
+fi
+
+# Generate Profile
+/usr/local/bin/wgcf generate >/dev/null 2>&1
+if [ ! -f "wgcf-profile.conf" ]; then
+    error "Failed to generate WireGuard profile."
+fi
+
+# Extract keys and addresses
+PRIVATE_KEY=$(grep -i "PrivateKey" wgcf-profile.conf | awk -F'= ' '{print $2}' | tr -d '\r')
+ADDRESS_V4=$(grep -i "Address" wgcf-profile.conf | grep -E "172\.|10\." | awk -F'= ' '{print $2}' | tr -d '\r')
+if [ -z "$ADDRESS_V4" ]; then
+    ADDRESS_V4=$(grep -i "Address" wgcf-profile.conf | head -n 1 | awk -F'= ' '{print $2}' | tr -d '\r')
+fi
+ADDRESS_V6=$(grep -i "Address" wgcf-profile.conf | grep ":" | awk -F'= ' '{print $2}' | tr -d '\r')
+PUBLIC_KEY="bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wRwGF0="
+
+# Clean up temp files
+cd - >/dev/null 2>&1
+rm -rf "$TEMP_DIR"
+
+# ------------------------------------------------------------------------------
+# 5. Probing Endpoints & Ports
+# ------------------------------------------------------------------------------
 ENDPOINTS=(
-    "DEFAULT:2408"
     "162.159.193.10:500"
     "162.159.193.10:4500"
     "162.159.192.1:500"
     "162.159.192.1:4500"
     "188.114.96.1:500"
     "188.114.96.1:4500"
+    "engage.cloudflareclient.com:2408"
 )
 
 CONNECTED=false
+ACTIVE_EP=""
 
-probe_connections() {
-    local protocol=$1
-    info "Setting tunnel protocol to $protocol..."
-    warp-cli --accept-tos tunnel protocol set "$protocol" >/dev/null 2>&1
+for EP in "${ENDPOINTS[@]}"; do
+    info "Probing endpoint $EP using wireproxy..."
+    
+    # Write temporary wireproxy configuration
+    cat > /etc/wireproxy.conf <<EOF
+[WG]
+SelfInterfaceIPv4 = $ADDRESS_V4
+SelfInterfaceIPv6 = $ADDRESS_V6
+PrivateKey = $PRIVATE_KEY
+DNS = 1.1.1.1
 
-    for EP in "${ENDPOINTS[@]}"; do
-        if [ "$EP" = "DEFAULT:2408" ]; then
-            info "Probing default endpoint with $protocol..."
-            warp-cli --accept-tos clear-custom-endpoint >/dev/null 2>&1
-        else
-            info "Probing custom endpoint $EP with $protocol..."
-            warp-cli --accept-tos set-custom-endpoint "$EP" >/dev/null 2>&1
+[Peer]
+PublicKey = $PUBLIC_KEY
+Endpoint = $EP
+
+[Socks5]
+BindAddress = 127.0.0.1:40000
+EOF
+
+    # Start wireproxy in background
+    /usr/local/bin/wireproxy -c /etc/wireproxy.conf >/dev/null 2>&1 &
+    WP_PID=$!
+    
+    # Wait up to 5 seconds and test proxy connection
+    for i in {1..5}; do
+        if curl -s -I --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep -q "warp="; then
+            CONNECTED=true
+            ACTIVE_EP=$EP
+            break 2
         fi
-        
-        # Disconnect and Connect
-        warp-cli --accept-tos disconnect >/dev/null 2>&1
-        warp-cli --accept-tos connect >/dev/null 2>&1
-        
-        # Wait up to 6 seconds to verify connection status
-        for i in {1..6}; do
-            WARP_STATUS=$(warp-cli status)
-            if [[ "$WARP_STATUS" == *"Connected"* || "$WARP_STATUS" == *"connected"* ]]; then
-                CONNECTED=true
-                break 2
-            fi
-            sleep 1
-        done
-        warn "Endpoint $EP with $protocol failed to connect. Retrying next..."
+        sleep 1
     done
-}
+    
+    # Failed, kill this background process and try next
+    kill $WP_PID >/dev/null 2>&1
+    wait $WP_PID >/dev/null 2>&1 || true
+done
 
-# Phase 1: Try WireGuard protocol with various ports
-probe_connections "WARP"
-
-# Phase 2: If WireGuard fails, switch to MASQUE and try again
-if [ "$CONNECTED" = false ]; then
-    warn "All WireGuard endpoints failed. Switching to MASQUE protocol (HTTP/3 over port 443)..."
-    probe_connections "MASQUE"
-fi
-
-# ------------------------------------------------------------------------------
-# 4. Connection Verification
-# ------------------------------------------------------------------------------
 if [ "$CONNECTED" = true ]; then
-    success "Cloudflare WARP successfully connected!"
-    warp-cli status
+    success "Successfully connected to WARP via endpoint: $ACTIVE_EP!"
+    # Clean up the background process (systemd will manage it next)
+    kill $WP_PID >/dev/null 2>&1
+    wait $WP_PID >/dev/null 2>&1 || true
 else
-    error "Could not establish WARP connection after probing multiple endpoints and protocols. Please check VPS firewall settings."
+    error "Could not establish WARP connection. All IP endpoints failed. Please check VPS firewall settings."
 fi
 
+# ------------------------------------------------------------------------------
+# 6. Configure Systemd Service
+# ------------------------------------------------------------------------------
+info "Configuring wireproxy systemd service..."
+
+cat > /etc/systemd/system/wireproxy.service <<EOF
+[Unit]
+Description=Wireproxy SOCKS5 Tunnel for Cloudflare WARP
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wireproxy -c /etc/wireproxy.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable wireproxy
+systemctl restart wireproxy
+
+# Give it a second to start under systemd
+sleep 2
+
+# ------------------------------------------------------------------------------
+# 7. Verification & Output
+# ------------------------------------------------------------------------------
 # Test connection via SOCKS5 proxy
 WARP_CHECK=$(curl -s --socks5-hostname 127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep "warp=")
 
 if [[ "$WARP_CHECK" == *"warp=on"* || "$WARP_CHECK" == *"warp=plus"* ]]; then
-    success "Cloudflare WARP SOCKS5 proxy is successfully routed and running on port 40000!"
+    success "Cloudflare WARP SOCKS5 proxy is successfully running on port 40000!"
 else
-    warn "WARP SOCKS5 proxy routing test failed. Trace: $WARP_CHECK"
+    error "WARP SOCKS5 proxy failed to establish under systemd."
 fi
 
 # Test Gemini API endpoint connectivity
-info "Testing Google Gemini API accessibility through WARP..."
+info "Testing Google Gemini API accessibility through SOCKS5 proxy..."
 GEMINI_TEST=$(curl -s -I -o /dev/null -w "%{http_code}" --socks5-hostname 127.0.0.1:40000 https://generativelanguage.googleapis.com/)
 if [ "$GEMINI_TEST" -eq 200 ] || [ "$GEMINI_TEST" -eq 403 ] || [ "$GEMINI_TEST" -eq 404 ]; then
     success "Successfully connected to Gemini API Endpoint via WARP (HTTP $GEMINI_TEST)!"
