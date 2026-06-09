@@ -261,7 +261,7 @@ install_ddnsgo() {
 
     cd /tmp || return 1
 
-    wget -q --show-progress \
+    wget -q \
         https://github.com/jeessy2/ddns-go/releases/latest/download/ddns-go_linux_arm64.tar.gz \
         -O ddns-go.tar.gz
 
