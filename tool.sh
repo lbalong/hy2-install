@@ -251,110 +251,8 @@ EOF
     echo "✅ 🎉 报告老哥：超精简高颜值温度面板已重新注入！"
     echo "================================================="
 }
+
 # ==================== 核心模块 5：DDNS-GO ====================
-
-install_ddnsgo() {
-echo "-------------------------------------------------"
-echo "🚀 正在部署 DDNS-GO ..."
-
-```
-mkdir -p /root/ddns-go
-
-cd /tmp || return 1
-
-wget -q --show-progress \
-    https://github.com/jeessy2/ddns-go/releases/latest/download/ddns-go_linux_arm64.tar.gz \
-    -O ddns-go.tar.gz
-
-if [ $? -ne 0 ]; then
-    echo "❌ DDNS-GO 下载失败。"
-    return 1
-fi
-
-rm -f /root/ddns-go/ddns-go
-
-tar -zxf ddns-go.tar.gz -C /root/ddns-go
-
-if [ $? -ne 0 ]; then
-    echo "❌ DDNS-GO 解压失败。"
-    return 1
-fi
-
-chmod +x /root/ddns-go/ddns-go
-
-# 写入开机启动
-if ! grep -q "/root/ddns-go/ddns-go" /etc/rc.local 2>/dev/null; then
-    sed -i '/exit 0/d' /etc/rc.local
-
-    echo "" >> /etc/rc.local
-    echo "/root/ddns-go/ddns-go >/dev/null 2>&1 &" >> /etc/rc.local
-    echo "" >> /etc/rc.local
-    echo "exit 0" >> /etc/rc.local
-fi
-
-chmod +x /etc/rc.local
-
-# 创建 LuCI 菜单
-mkdir -p /usr/lib/lua/luci/controller
-
-cat > /usr/lib/lua/luci/controller/ddnsgo.lua << 'EOF'
-```
-
-module("luci.controller.ddnsgo", package.seeall)
-
-function index()
-entry({"admin", "services", "ddns-go"},
-call("redirect_ddnsgo"),
-_("DDNS-GO"), 90)
-end
-
-function redirect_ddnsgo()
-local http = require "luci.http"
-http.redirect("http://" .. http.getenv("HTTP_HOST"):match("([^:]+)") .. ":9876")
-end
-EOF
-
-```
-# 启动 DDNS-GO
-pkill ddns-go 2>/dev/null
-/root/ddns-go/ddns-go >/dev/null 2>&1 &
-
-refresh_system
-
-echo "================================================="
-echo "✅ DDNS-GO 安装完成"
-echo "👉 菜单位置：服务 → DDNS-GO"
-echo "👉 首次访问：服务 → DDNS-GO"
-echo "================================================="
-```
-
-}
-
-uninstall_ddnsgo() {
-echo "-------------------------------------------------"
-echo "🗑️ 正在卸载 DDNS-GO ..."
-
-```
-pkill ddns-go 2>/dev/null
-
-rm -rf /root/ddns-go
-
-sed -i '\|/root/ddns-go/ddns-go|d' /etc/rc.local
-
-rm -f /usr/lib/lua/luci/controller/ddnsgo.lua
-
-refresh_system
-
-echo "================================================="
-echo "✅ DDNS-GO 已卸载"
-echo "================================================="
-```
-
-}
-
-# ==================== 主菜单逻辑 ====================
-
-# ==================== 核心模块 5：DDNS-GO 自动安装/菜单 ====================
 install_ddnsgo() {
     echo "-------------------------------------------------"
     echo "🚀 正在部署 DDNS-GO ..."
@@ -364,40 +262,47 @@ install_ddnsgo() {
     mkdir -p "$WORKDIR"
     cd "$WORKDIR" || return 1
 
-    # 获取最新版本
-    LATEST_VER=$(curl -fsSL https://api.github.com/repos/jeessy2/ddns-go/releases/latest |                  grep '"tag_name"' | head -n1 | cut -d'"' -f4)
+    echo "📡 正在获取 DDNS-GO 最新版本..."
 
-    if [ -z "$LATEST_VER" ]; then
-        echo "❌ 获取最新版本失败。"
-        return 1
-    fi
-    echo "✅ 最新版本：$LATEST_VER"
+    LATEST_VER=$(curl -fsSL https://api.github.com/repos/jeessy2/ddns-go/releases/latest | grep '"tag_name"' | head -n1 | cut -d'"' -f4)
+
+    [ -z "$LATEST_VER" ] && echo "❌ 获取最新版本失败。" && return 1
 
     DOWNLOAD_URL="https://github.com/jeessy2/ddns-go/releases/download/${LATEST_VER}/ddns-go_${LATEST_VER#v}_linux_arm64.tar.gz"
-    curl -fL "$DOWNLOAD_URL" -o ddns-go.tar.gz
-    if [ $? -ne 0 ]; then
-        echo "❌ DDNS-GO 下载失败。"
-        return 1
-    fi
 
-    tar -zxvf ddns-go.tar.gz
+    echo "📥 下载版本: ${LATEST_VER}"
+
+    wget "$DOWNLOAD_URL" -O ddns-go.tar.gz
+
+    [ $? -ne 0 ] && echo "❌ DDNS-GO 下载失败。" && return 1
+
     mkdir -p /root/ddns-go
-    mv ddns-go /root/ddns-go/
+    tar -zxf ddns-go.tar.gz -C "$WORKDIR"
+
+    [ ! -f "$WORKDIR/ddns-go" ] && echo "❌ 解压失败。" && return 1
+
+    cp -f "$WORKDIR/ddns-go" /root/ddns-go/ddns-go
     chmod +x /root/ddns-go/ddns-go
 
-    # 添加开机自启
     if ! grep -q "/root/ddns-go/ddns-go" /etc/rc.local 2>/dev/null; then
-        sed -i '/exit 0/i\/root/ddns-go/ddns-go >/dev/null 2>&1 &' /etc/rc.local
+        sed -i '/exit 0/d' /etc/rc.local
+        echo "" >> /etc/rc.local
+        echo "/root/ddns-go/ddns-go >/dev/null 2>&1 &" >> /etc/rc.local
+        echo "" >> /etc/rc.local
+        echo "exit 0" >> /etc/rc.local
     fi
+
     chmod +x /etc/rc.local
 
-    # 创建 LuCI 菜单
     mkdir -p /usr/lib/lua/luci/controller
+
     cat > /usr/lib/lua/luci/controller/ddnsgo.lua << 'EOF'
 module("luci.controller.ddnsgo", package.seeall)
 
 function index()
-    entry({"admin", "services", "ddns-go"}, call("redirect_ddnsgo"), _("DDNS-GO"), 90)
+    entry({"admin", "services", "ddns-go"},
+        call("redirect_ddnsgo"),
+        _("DDNS-GO"), 90)
 end
 
 function redirect_ddnsgo()
@@ -406,24 +311,30 @@ function redirect_ddnsgo()
 end
 EOF
 
-    # 启动 DDNS-GO
     pkill ddns-go 2>/dev/null
     /root/ddns-go/ddns-go >/dev/null 2>&1 &
 
-    echo "✅ DDNS-GO 安装完成！可以通过 LuCI 菜单【服务 → DDNS-GO】访问。"
+    refresh_system
+
+    echo "✅ DDNS-GO 安装完成"
 }
 
 uninstall_ddnsgo() {
     echo "-------------------------------------------------"
     echo "🗑️ 正在卸载 DDNS-GO ..."
+
     pkill ddns-go 2>/dev/null
     rm -rf /root/ddns-go
     sed -i '\|/root/ddns-go/ddns-go|d' /etc/rc.local
     rm -f /usr/lib/lua/luci/controller/ddnsgo.lua
-    echo "✅ DDNS-GO 已安全卸载。"
+
+    refresh_system
+
+    echo "✅ DDNS-GO 已卸载"
 }
 
 
+# ==================== 主菜单逻辑 ====================
 while true; do
     echo "================================================="
     echo "  ${SYS_TITLE} 维护工具箱 (双剑合璧完美集成版)"
