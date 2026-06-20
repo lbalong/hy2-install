@@ -94,40 +94,23 @@ GET_COUNTRY_CONFIG() {
 # ──────────────────────────────────────────────────────────────
 # 核心函数：从免费代理池拉取指定国家的 SOCKS5 代理并测试
 # 成功则设置全局变量 OUTBOUND_PROXY="IP:PORT"
+# 双关测试：连通性 + 速度 >= MIN_SPEED_KB (默认100KB/s)
 # ──────────────────────────────────────────────────────────────
 FETCH_AND_TEST_PROXY() {
     local country="$1"
+    local MIN_SPEED_KB="${2:-100}"   # 最低速度门槛，默认 100 KB/s
     OUTBOUND_PROXY=""
 
-    echo " 🌐 正在从代理池拉取 [$country] 地区的 SOCKS5 代理列表..."
+    echo " 🌐 正在从各代理源拉取 [$country] 地区的 SOCKS5 代理列表..."
+    echo " ⚡ 速度门槛：≥ ${MIN_SPEED_KB} KB/s（低于此速度的代理自动跳过）"
 
-    # 数据源1: proxyscrape
-    local raw_list
-    raw_list=$(curl -s --max-time 15 \
+    local combined=""
+
+    # ── 数据源1: proxyscrape（按国家直接过滤）──────────────────
+    local src1
+    src1=$(curl -s --max-time 15 \
         "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&country=${country}&protocol=socks5&proxy_format=ipport&format=text&timeout=5000" \
         2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
-
-    # 数据源2: geonode（备用，最多拉100条）
-    if [ -z "$raw_list" ]; then
-        echo " ↩️  proxyscrape 未返回结果，切换备用源 geonode..."
-        local page1 page2
-        page1=$(curl -s --max-time 15 \
-            "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=1&sort_by=lastChecked&sort_type=desc" \
-            2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
-        page2=$(curl -s --max-time 15 \
-            "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=2&sort_by=lastChecked&sort_type=desc" \
-            2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
-        raw_list=$(printf '%s\n%s' "$page1" "$page2" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
-    fi
-
-    # 数据源3: spys.me（再备用）
-    if [ -z "$raw_list" ]; then
-        echo " ↩️  geonode 也无数据，切换备用源 spys.me..."
-        raw_list=$(curl -s --max-time 15 \
-            "https://spys.me/socks.txt" 2>/dev/null \
-            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' \
-            | head -100)
-    fi
 
     if [ -z "$raw_list" ]; then
         echo " ❌ 三个代理源均未返回可用列表，将使用 VPS 直连出口"
