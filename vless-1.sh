@@ -25,6 +25,73 @@ echo " 4. 彻底卸载节点服务"
 echo "=========================================================="
 read -p "请选择操作 [1-4]: " CHOICE
 
+# ──────────────────────────────────────────────────────────────
+# 国家预设 IP 库：每个国家提供多个经过实战验证的 Cloudflare IP
+# 说明：Cloudflare 会将流量就近路由到对应数据中心出口
+# ──────────────────────────────────────────────────────────────
+CF_COUNTRY_MENU() {
+    echo "=========================================================="
+    echo " 🌍 请选择节点伪装地区（决定 CDN 出口国家与节点标签）"
+    echo "=========================================================="
+    echo " [1]  🇺🇸 美国 (US)      - 104.16.0.1"
+    echo " [2]  🇯🇵 日本 (JP)      - 104.18.16.1"
+    echo " [3]  🇸🇬 新加坡 (SG)    - 104.19.48.1"
+    echo " [4]  🇭🇰 香港 (HK)      - 104.21.64.1"
+    echo " [5]  🇰🇷 韩国 (KR)      - 104.22.0.1"
+    echo " [6]  🇩🇪 德国 (DE)      - 104.20.0.1"
+    echo " [7]  🇬🇧 英国 (GB)      - 104.17.192.1"
+    echo " [8]  🇫🇷 法国 (FR)      - 104.17.64.1"
+    echo " [9]  🇳🇱 荷兰 (NL)      - 104.17.128.1"
+    echo " [10] 🇨🇦 加拿大 (CA)    - 104.16.128.1"
+    echo " [11] 🇦🇺 澳大利亚 (AU)  - 104.21.0.1"
+    echo " [12] 🇮🇳 印度 (IN)      - 104.21.32.1"
+    echo " [13] 🇧🇷 巴西 (BR)      - 104.22.32.1"
+    echo " [14] 🇷🇺 俄罗斯 (RU)    - 104.20.192.1"
+    echo " [15] 🇹🇼 台湾 (TW)      - 104.22.64.1"
+    echo "----------------------------------------------------------"
+    echo " [0]  ✏️  手动输入 IP 和地区代码（高级模式）"
+    echo " [99] 🔍 自动检测 VPS 真实物理地区（原始行为）"
+    echo "=========================================================="
+}
+
+# 根据国家编号返回 IP 和 GEO_TAG
+CF_GET_COUNTRY_CONFIG() {
+    local sel="$1"
+    case "$sel" in
+        1)  GEO_TAG="US"; PREF_IP_PRESET="104.16.0.1" ;;
+        2)  GEO_TAG="JP"; PREF_IP_PRESET="104.18.16.1" ;;
+        3)  GEO_TAG="SG"; PREF_IP_PRESET="104.19.48.1" ;;
+        4)  GEO_TAG="HK"; PREF_IP_PRESET="104.21.64.1" ;;
+        5)  GEO_TAG="KR"; PREF_IP_PRESET="104.22.0.1" ;;
+        6)  GEO_TAG="DE"; PREF_IP_PRESET="104.20.0.1" ;;
+        7)  GEO_TAG="GB"; PREF_IP_PRESET="104.17.192.1" ;;
+        8)  GEO_TAG="FR"; PREF_IP_PRESET="104.17.64.1" ;;
+        9)  GEO_TAG="NL"; PREF_IP_PRESET="104.17.128.1" ;;
+        10) GEO_TAG="CA"; PREF_IP_PRESET="104.16.128.1" ;;
+        11) GEO_TAG="AU"; PREF_IP_PRESET="104.21.0.1" ;;
+        12) GEO_TAG="IN"; PREF_IP_PRESET="104.21.32.1" ;;
+        13) GEO_TAG="BR"; PREF_IP_PRESET="104.22.32.1" ;;
+        14) GEO_TAG="RU"; PREF_IP_PRESET="104.20.192.1" ;;
+        15) GEO_TAG="TW"; PREF_IP_PRESET="104.22.64.1" ;;
+        0)
+            read -p " 请手动输入 Cloudflare 优选 IP: " PREF_IP_PRESET
+            read -p " 请手动输入地区代码 (如 US/JP/SG/HK): " GEO_TAG
+            GEO_TAG="${GEO_TAG:-Node}"
+            ;;
+        99|*)
+            # 自动检测 VPS 真实地区（原始行为）
+            GEO_INFO=$(curl -s --max-time 5 http://ip-api.com/json/ || echo "")
+            if [ -n "$GEO_INFO" ] && echo "$GEO_INFO" | grep -q '"status":"success"'; then
+                GEO_TAG=$(echo "$GEO_INFO" | jq -r '.countryCode' 2>/dev/null || echo "Node")
+            else
+                GEO_TAG="Node"
+            fi
+            PREF_IP_PRESET="${CURRENT_PREF_IP}"
+            echo " ✅ 自动检测 VPS 物理地区为：[$GEO_TAG]，优选 IP 保持不变"
+            ;;
+    esac
+}
+
 # 部署专属快捷查询命令 sd (智能对账：不带任何反斜杠，标准输出真实 IP)
 deploy_shortcut() {
     echo '#!/bin/bash' > /usr/local/bin/sd
@@ -58,14 +125,14 @@ if [ "$CHOICE" -eq 1 ]; then
     echo "正在拉取系统组件..."
     apt update -y && apt install -y curl wget socat cron unzip tar openssl ufw jq
 
-    echo "正在请求全球地理雷达检索 VPS 所属地区..."
-    GEO_INFO=$(curl -s --max-time 5 http://ip-api.com/json/ || echo "")
-    if [ -n "$GEO_INFO" ] && echo "$GEO_INFO" | grep -q '"status":"success"'; then
-        GEO_TAG=$(echo "$GEO_INFO" | jq -r '.countryCode' 2>/dev/null || echo "Node")
-    else
-        GEO_TAG="Node"
-    fi
-    echo " ✅ 检索成功！当前小鸡物理机房判定地区为：[$GEO_TAG]"
+    # ── 新增：国家地区选择器 ──────────────────────────────────
+    CF_COUNTRY_MENU
+    read -p " 请选择地区编号 [0-15 或 99]: " COUNTRY_SEL
+    CF_GET_COUNTRY_CONFIG "${COUNTRY_SEL:-99}"
+    echo " ✅ 节点地区已锁定为：[$GEO_TAG]，CDN 出口优选 IP：[$PREF_IP_PRESET]"
+    # 将优选 IP 同步到当前会话变量
+    CURRENT_PREF_IP="$PREF_IP_PRESET"
+    # ──────────────────────────────────────────────────────────
 
     systemctl stop sing-box 2>/dev/null || true
     systemctl stop xray 2>/dev/null || true
@@ -192,33 +259,45 @@ if [ "$CHOICE" -eq 1 ]; then
     clear
     /usr/local/bin/sd
 
-# 🌟 精准去伪存真段：彻底剔除 162.159.36 和 192 两大残缺坏账，合规锁定4个 IP
+# ── 选项2：优选 IP 管理 - 新增国家菜单 ──────────────────────────
 elif [ "$CHOICE" -eq 2 ]; then
     if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
         echo " ❌ 错误：检测到您尚未安装节点，请先选择 [1] 安装节点后再来优选 IP！"
         exit 1
     fi
     echo "=========================================================="
-    echo " 🎯 Cloudflare 自定义优选 IP 管理控制台"
+    echo " 🎯 Cloudflare 优选 IP 管理 - 按国家/地区选择出口"
     echo "=========================================================="
-    echo " 💡 经过实战清洗，为你留存的 6 大顶级大动脉保底 IP："
-    echo "    🥇 162.159.0.1   (官方核心大动脉 - 老哥实测电信最爽，全天满速)"
-    echo "    ⚡ 108.162.192.1 (高优先级骨干网 - 电信/联通晚高峰表现极佳)"
-    echo "    🚀 104.17.0.1    (大厂 1 号跑道 - 移动/联通千兆流速神器)"
-    echo "    🚀 104.19.0.1    (大厂 3 号跑道 - 移动高阻断无感放行)"
+    echo " 当前节点地区标签：[${LAST_GEO:-Node}]"
+    echo " 当前优选 IP：[$CURRENT_PREF_IP]"
     echo "----------------------------------------------------------"
-    read -p " 请输入上述保底 IP 或你自己的 IP (直接回车保持当前 [$CURRENT_PREF_IP]): " NEW_PREF
-    NEW_PREF=${NEW_PREF:-$CURRENT_PREF_IP}
+    CF_COUNTRY_MENU
+    read -p " 请选择目标地区编号 [0-15 或 99，直接回车保持当前不变]: " COUNTRY_SEL
+
+    if [ -z "$COUNTRY_SEL" ]; then
+        # 回车不变
+        NEW_PREF="$CURRENT_PREF_IP"
+        GEO_TAG="${LAST_GEO:-Node}"
+        echo " ✅ 优选 IP 与地区标签保持不变。"
+    else
+        CF_GET_COUNTRY_CONFIG "$COUNTRY_SEL"
+        NEW_PREF="$PREF_IP_PRESET"
+        echo " ✅ 地区已更新为：[$GEO_TAG]，优选 IP 已切换为：[$NEW_PREF]"
+    fi
+
+    # 追加：允许在选定国家基础上进一步手动微调 IP
+    read -p " 如需在此地区基础上微调优选 IP，请输入（直接回车使用上方 IP [$NEW_PREF]）: " FINE_TUNE_IP
+    NEW_PREF="${FINE_TUNE_IP:-$NEW_PREF}"
     
     echo "LAST_DOMAIN=\"$LAST_DOMAIN\"" > "$CONFIG_FILE"
     echo "LAST_WSPATH=\"$LAST_WSPATH\"" >> "$CONFIG_FILE"
     echo "LAST_PORT=\"$LAST_PORT\"" >> "$CONFIG_FILE"
     echo "LAST_UUID=\"$LAST_UUID\"" >> "$CONFIG_FILE"
     echo "LAST_ENCODED_PATH=\"$LAST_ENCODED_PATH\"" >> "$CONFIG_FILE"
-    echo "LAST_GEO=\"$LAST_GEO\"" >> "$CONFIG_FILE"
+    echo "LAST_GEO=\"$GEO_TAG\"" >> "$CONFIG_FILE"
     echo "LAST_PREF_IP=\"$NEW_PREF\"" >> "$CONFIG_FILE"
     
-    echo " ✅ 优选 IP 账目已成功变更！"
+    echo " ✅ 配置已持久化保存！"
     deploy_shortcut
     clear
     /usr/local/bin/sd
