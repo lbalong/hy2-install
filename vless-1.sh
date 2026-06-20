@@ -14,19 +14,18 @@ if [ -f "$CONFIG_FILE" ]; then source "$CONFIG_FILE"; fi
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "6a82e704-9ac8-4fb8-bef1-6c9d7d7e390a")
 CURRENT_PREF_IP="${LAST_PREF_IP:-104.16.0.1}"
-CURRENT_PROXY="${LAST_OUTBOUND_PROXY:-未设置}"
+CURRENT_PROXY="${LAST_OUTBOUND_PROXY:-VPS直连}"
 CURRENT_GEO="${LAST_GEO:-未设置}"
 
 echo "=========================================================="
 echo "    Cloudflare 避风港：Sing-Box VLESS-WS-TLS 满血完全体"
 echo "=========================================================="
 echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频调校 + 证书复用)"
-echo " 2. 更换/管理自定义优选 IP (当前: $CURRENT_PREF_IP)"
+echo " 2. 更换出口国家 / 切换直连  (当前出口: [$CURRENT_GEO] $CURRENT_PROXY)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载节点服务"
-echo " 5. 更换出口国家 / 刷新出口代理 (当前出口: [$CURRENT_GEO] $CURRENT_PROXY)"
 echo "=========================================================="
-read -p "请选择操作 [1-5]: " CHOICE
+read -p "请选择操作 [1-4]: " CHOICE
 
 # ──────────────────────────────────────────────────────────────
 # 国家菜单：同时决定 CF 入口标签 和 出口 SOCKS5 代理拉取地区
@@ -42,10 +41,11 @@ COUNTRY_MENU() {
     echo " [9]  🇳🇱 荷兰   (NL)    [10] 🇨🇦 加拿大 (CA)"
     echo " [11] 🇦🇺 澳大利亚(AU)   [12] 🇮🇳 印度   (IN)"
     echo " [13] 🇧🇷 巴西   (BR)    [14] 🇷🇺 俄罗斯 (RU)"
-    echo " [15] 🇹🇼 台湾   (TW)"
+    echo " [15] 🇹🇼 台湾   (TW)    [16] 🇹🇷 土耳其 (TR)"
+    echo " [17] 🇦🇷 阿根廷 (AR)    [18] 🇳🇬 尼日利亚(NG)"
     echo "----------------------------------------------------------"
     echo " [0]  ✏️  手动输入 SOCKS5 代理地址（格式: IP:端口）"
-    echo " [99] 🚫 不使用代理，直接用 VPS 出口（原始行为）"
+    echo " [99] 🚫 不使用代理，直接用 VPS 出口（直连）"
     echo "=========================================================="
 }
 
@@ -68,6 +68,9 @@ GET_COUNTRY_CONFIG() {
         13) GEO_TAG="BR"; COUNTRY_CODE="BR"; PREF_IP_PRESET="104.22.32.1" ;;
         14) GEO_TAG="RU"; COUNTRY_CODE="RU"; PREF_IP_PRESET="104.20.192.1" ;;
         15) GEO_TAG="TW"; COUNTRY_CODE="TW"; PREF_IP_PRESET="104.22.64.1" ;;
+        16) GEO_TAG="TR"; COUNTRY_CODE="TR"; PREF_IP_PRESET="104.21.80.1" ;;
+        17) GEO_TAG="AR"; COUNTRY_CODE="AR"; PREF_IP_PRESET="104.22.80.1" ;;
+        18) GEO_TAG="NG"; COUNTRY_CODE="NG"; PREF_IP_PRESET="104.22.96.1" ;;
         0)
             read -p " 请输入 SOCKS5 代理地址 (格式 IP:端口，例如 1.2.3.4:1080): " MANUAL_PROXY
             read -p " 请输入地区标签 (如 US/JP/SG): " GEO_TAG
@@ -100,25 +103,30 @@ FETCH_AND_TEST_PROXY() {
 
     # 数据源1: proxyscrape
     local raw_list
-    raw_list=$(curl -s --max-time 12 \
+    raw_list=$(curl -s --max-time 15 \
         "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&country=${country}&protocol=socks5&proxy_format=ipport&format=text&timeout=5000" \
-        2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -40)
+        2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
 
-    # 数据源2: geonode（备用）
+    # 数据源2: geonode（备用，最多拉100条）
     if [ -z "$raw_list" ]; then
         echo " ↩️  proxyscrape 未返回结果，切换备用源 geonode..."
-        raw_list=$(curl -s --max-time 12 \
+        local page1 page2
+        page1=$(curl -s --max-time 15 \
             "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=1&sort_by=lastChecked&sort_type=desc" \
-            2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null | head -40)
+            2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
+        page2=$(curl -s --max-time 15 \
+            "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=2&sort_by=lastChecked&sort_type=desc" \
+            2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
+        raw_list=$(printf '%s\n%s' "$page1" "$page2" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
     fi
 
     # 数据源3: spys.me（再备用）
     if [ -z "$raw_list" ]; then
         echo " ↩️  geonode 也无数据，切换备用源 spys.me..."
-        raw_list=$(curl -s --max-time 12 \
+        raw_list=$(curl -s --max-time 15 \
             "https://spys.me/socks.txt" 2>/dev/null \
             | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' \
-            | head -40)
+            | head -100)
     fi
 
     if [ -z "$raw_list" ]; then
@@ -128,12 +136,12 @@ FETCH_AND_TEST_PROXY() {
 
     local total
     total=$(echo "$raw_list" | wc -l)
-    echo " 📋 共获取 $total 个候选代理，开始逐一测速测通（最多测30个）..."
+    echo " 📋 共获取 $total 个候选代理，开始逐一测速测通（最多测100个）..."
 
     local tested=0
     while IFS= read -r proxy; do
         [ -z "$proxy" ] && continue
-        [ "$tested" -ge 30 ] && break
+        [ "$tested" -ge 100 ] && break
         tested=$((tested + 1))
 
         local phost="${proxy%%:*}"
@@ -153,7 +161,7 @@ FETCH_AND_TEST_PROXY() {
         echo " ✗ $proxy 不通 ($tested/$total)"
     done <<< "$raw_list"
 
-    echo " ❌ 已测试 $tested 个代理，均不可用，将使用 VPS 直连出口"
+    echo " ❌ 已测试 $tested 个代理（共 $total 个），均不可用，将使用 VPS 直连出口"
     return 1
 }
 
@@ -545,52 +553,9 @@ if [ "$CHOICE" -eq 1 ]; then
     /usr/local/bin/sd
 
 # ══════════════════════════════════════════════════════════════
-#  选项 2：更换/管理 CF 优选 IP
+#  选项 2：更换出口国家 / 切换直连（不重装节点）
 # ══════════════════════════════════════════════════════════════
 elif [ "$CHOICE" -eq 2 ]; then
-    if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
-        echo " ❌ 错误：检测到您尚未安装节点，请先选择 [1] 安装节点后再来优选 IP！"
-        exit 1
-    fi
-    echo "=========================================================="
-    echo " 🎯 Cloudflare 优选 IP 管理（仅影响入口节点 IP）"
-    echo "=========================================================="
-    echo " 当前优选 IP：[$CURRENT_PREF_IP]"
-    echo "----------------------------------------------------------"
-    echo " 💡 保底 IP 参考："
-    echo "    🥇 162.159.0.1   (电信首选)"
-    echo "    ⚡ 108.162.192.1 (联通/电信晚高峰)"
-    echo "    🚀 104.17.0.1    (移动/联通)"
-    echo "    🚀 104.19.0.1    (移动高稳定)"
-    echo "----------------------------------------------------------"
-    read -p " 请输入优选 IP（直接回车保持当前 [$CURRENT_PREF_IP]）: " NEW_PREF
-    NEW_PREF="${NEW_PREF:-$CURRENT_PREF_IP}"
-
-    sed -i "s|LAST_PREF_IP=.*|LAST_PREF_IP=\"${NEW_PREF}\"|" "$CONFIG_FILE"
-    echo " ✅ 优选 IP 已更新为: $NEW_PREF"
-    deploy_shortcut
-    clear
-    /usr/local/bin/sd
-
-# ══════════════════════════════════════════════════════════════
-#  选项 3：查看节点
-# ══════════════════════════════════════════════════════════════
-elif [ "$CHOICE" -eq 3 ]; then
-    if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo " 未找到节点配置！"; fi
-
-# ══════════════════════════════════════════════════════════════
-#  选项 4：卸载
-# ══════════════════════════════════════════════════════════════
-elif [ "$CHOICE" -eq 4 ]; then
-    systemctl stop sing-box 2>/dev/null || true
-    ( crontab -l 2>/dev/null | grep -v 'cf-proxy-watchdog' ) | crontab - 2>/dev/null || true
-    rm -rf /etc/cf_vless /etc/sing-box /usr/local/bin/sd /usr/local/bin/cf-proxy-watchdog /root/cert
-    echo " 卸载清洗完成！"
-
-# ══════════════════════════════════════════════════════════════
-#  选项 5：更换出口国家 / 刷新代理（不重装节点）
-# ══════════════════════════════════════════════════════════════
-elif [ "$CHOICE" -eq 5 ]; then
     if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
         echo " ❌ 错误：请先选择 [1] 安装节点！"
         exit 1
@@ -599,11 +564,11 @@ elif [ "$CHOICE" -eq 5 ]; then
     apt install -y jq curl 2>/dev/null || true
 
     echo "=========================================================="
-    echo " 🔄 出口国家管理（实时更换，无需重装节点）"
+    echo " 🔄 出口管理（实时更换，无需重装节点）"
     echo " 当前出口: [${LAST_GEO:-未设置}] → ${LAST_OUTBOUND_PROXY:-VPS直连}"
     echo "=========================================================="
     COUNTRY_MENU
-    read -p " 请选择新的出口国家编号: " COUNTRY_SEL
+    read -p " 请选择新的出口编号: " COUNTRY_SEL
     GET_COUNTRY_CONFIG "${COUNTRY_SEL:-99}"
 
     OUTBOUND_PROXY=""
@@ -635,6 +600,21 @@ elif [ "$CHOICE" -eq 5 ]; then
     /usr/local/bin/sd
     echo ""
     echo " 🎉 出口已切换！连接节点后访问 https://ip.sb 验证出口 IP 地区。"
+
+# ══════════════════════════════════════════════════════════════
+#  选项 3：查看节点
+# ══════════════════════════════════════════════════════════════
+elif [ "$CHOICE" -eq 3 ]; then
+    if [ -f "/usr/local/bin/sd" ]; then /usr/local/bin/sd; else echo " 未找到节点配置！"; fi
+
+# ══════════════════════════════════════════════════════════════
+#  选项 4：卸载
+# ══════════════════════════════════════════════════════════════
+elif [ "$CHOICE" -eq 4 ]; then
+    systemctl stop sing-box 2>/dev/null || true
+    ( crontab -l 2>/dev/null | grep -v 'cf-proxy-watchdog' ) | crontab - 2>/dev/null || true
+    rm -rf /etc/cf_vless /etc/sing-box /usr/local/bin/sd /usr/local/bin/cf-proxy-watchdog /root/cert
+    echo " 卸载清洗完成！"
 
 else
     exit 1
