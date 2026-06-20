@@ -13,7 +13,12 @@ if [ -f "$CONFIG_FILE" ]; then source "$CONFIG_FILE"; fi
 
 IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
 UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "6a82e704-9ac8-4fb8-bef1-6c9d7d7e390a")
-CURRENT_PREF_IP="${LAST_PREF_IP:-104.16.0.1}"
+
+# 用户专属的优选 IP 库
+USER_CF_IPS=(108.162.198.5 172.64.229.8 172.64.229.150 172.64.229.221 108.162.198.1 172.64.229.44 172.64.229.100 172.64.53.96 172.64.53.8 108.162.198.8 108.162.198.100 172.64.148.221 173.245.58.50 173.245.58.172)
+RANDOM_CF_IP=${USER_CF_IPS[$RANDOM % ${#USER_CF_IPS[@]}]}
+
+CURRENT_PREF_IP="${LAST_PREF_IP:-$RANDOM_CF_IP}"
 CURRENT_PROXY="${LAST_OUTBOUND_PROXY:-VPS直连}"
 CURRENT_GEO="${LAST_GEO:-未设置}"
 
@@ -89,6 +94,9 @@ GET_COUNTRY_CONFIG() {
             return 0
             ;;
     esac
+    
+    # 强制覆盖所有国家的优选IP为用户的私人 IP 库中的随机一个
+    PREF_IP_PRESET="$RANDOM_CF_IP"
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -208,27 +216,24 @@ FETCH_AND_TEST_PROXY() {
             speed_kb=$(awk "BEGIN {printf \"%d\", ${speed_bytes}/1024}")
         fi
 
-        # 记录最快的代理，以作保底
+        # 记录最快的代理
         if [ "$speed_kb" -gt "$best_speed" ]; then
             best_speed="$speed_kb"
             best_proxy="$proxy"
             best_ip="$exit_ip"
         fi
 
-        if [ "$speed_kb" -lt "$MIN_SPEED_KB" ]; then
-            echo " ✗ [$tested/$total] $proxy → $exit_ip，${speed_kb} KB/s（未达标，暂存为保底）"
-            continue
-        fi
+        echo " ⚡ [$tested/$total] $proxy → $exit_ip，速度: ${speed_kb} KB/s"
 
-        echo " ✅ [$tested/$total] $proxy → 出口IP: $exit_ip，速度: ${speed_kb} KB/s ✓"
-        OUTBOUND_PROXY="$proxy"
-        return 0
+        if [ "$speed_kb" -ge 300 ]; then
+            echo " 🚀 发现极速节点(≥300KB/s)，无需继续，提前结束测速！"
+            break
+        fi
     done <<< "$combined"
 
-    if [ -n "$best_proxy" ] && [ "$best_speed" -gt 0 ]; then
-        echo " ⚠️ 未能找到速度满足 ≥${MIN_SPEED_KB}KB/s 的顶级节点！"
-        echo " ♻️ 将自动降级，启用本次测试中速度最快的一个："
-        echo " ✅ [保底采用] $best_proxy → 出口IP: $best_ip，速度: ${best_speed} KB/s"
+    if [ -n "$best_proxy" ]; then
+        echo " 🏆 穷举测速完成！挑选出测试池中最快节点："
+        echo " ✅ [最终选用] $best_proxy → 出口IP: $best_ip，速度: ${best_speed} KB/s"
         OUTBOUND_PROXY="$best_proxy"
         return 0
     fi
