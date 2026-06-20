@@ -101,7 +101,7 @@ FETCH_AND_TEST_PROXY() {
     OUTBOUND_PROXY=""
 
     echo " 🌐 正在从各代理源拉取 [$country] 地区的 SOCKS5 代理列表..."
-    echo " ⚡ 速度门槛：≥ ${MIN_SPEED_KB} KB/s（低于此速度的代理自动跳过）"
+    echo " ⚡ 速度门槛：≥ ${MIN_SPEED_KB} KB/s（低于此门槛将尝试选用最快者）"
 
     local combined=""
 
@@ -177,6 +177,10 @@ FETCH_AND_TEST_PROXY() {
     echo " ----------------------------------------------------------"
 
     local tested=0
+    local best_speed=0
+    local best_proxy=""
+    local best_ip=""
+
     while IFS= read -r proxy; do
         [ -z "$proxy" ] && continue
         [ "$tested" -ge 100 ] && break
@@ -203,8 +207,16 @@ FETCH_AND_TEST_PROXY() {
         if [ -n "$speed_bytes" ] && echo "$speed_bytes" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
             speed_kb=$(awk "BEGIN {printf \"%d\", ${speed_bytes}/1024}")
         fi
+
+        # 记录最快的代理，以作保底
+        if [ "$speed_kb" -gt "$best_speed" ]; then
+            best_speed="$speed_kb"
+            best_proxy="$proxy"
+            best_ip="$exit_ip"
+        fi
+
         if [ "$speed_kb" -lt "$MIN_SPEED_KB" ]; then
-            echo " ✗ [$tested/$total] $proxy → $exit_ip，${speed_kb} KB/s（未达标）"
+            echo " ✗ [$tested/$total] $proxy → $exit_ip，${speed_kb} KB/s（未达标，暂存为保底）"
             continue
         fi
 
@@ -213,8 +225,16 @@ FETCH_AND_TEST_PROXY() {
         return 0
     done <<< "$combined"
 
-    echo " ❌ 已测试 $tested 个（共 $total 个），无速度达标（≥${MIN_SPEED_KB} KB/s）的代理"
-    echo " 💡 提示：可调低速度门槛重试，或选 [99] 切换为 VPS 直连"
+    if [ -n "$best_proxy" ] && [ "$best_speed" -gt 0 ]; then
+        echo " ⚠️ 未能找到速度满足 ≥${MIN_SPEED_KB}KB/s 的顶级节点！"
+        echo " ♻️ 将自动降级，启用本次测试中速度最快的一个："
+        echo " ✅ [保底采用] $best_proxy → 出口IP: $best_ip，速度: ${best_speed} KB/s"
+        OUTBOUND_PROXY="$best_proxy"
+        return 0
+    fi
+
+    echo " ❌ 已测试 $tested 个（共 $total 个），完全没有一点速度或连通性。"
+    echo " 💡 提示：选 [99] 切换为 VPS 直连"
     return 1
 }
 
