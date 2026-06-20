@@ -117,20 +117,20 @@ FETCH_AND_TEST_PROXY() {
     local src1
     src1=$(curl -s --max-time 15 \
         "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&country=${country}&protocol=socks5&proxy_format=ipport&format=text&timeout=5000" \
-        2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
+        2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -1000)
     local cnt1=$(echo "$src1" | grep -c . 2>/dev/null || echo 0)
     echo " 📦 proxyscrape:   $cnt1 条"
     combined=$(printf '%s\n%s' "$combined" "$src1")
 
-    # ── 数据源2: geonode 第1+2页（按国家过滤，最多100条）──────
+    # ── 数据源2: geonode 扩容拉取 ──────
     local p1 p2 src2
     p1=$(curl -s --max-time 15 \
-        "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=1&sort_by=lastChecked&sort_type=desc" \
+        "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=500&page=1&sort_by=lastChecked&sort_type=desc" \
         2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
     p2=$(curl -s --max-time 15 \
-        "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=2&sort_by=lastChecked&sort_type=desc" \
+        "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=500&page=2&sort_by=lastChecked&sort_type=desc" \
         2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
-    src2=$(printf '%s\n%s' "$p1" "$p2" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
+    src2=$(printf '%s\n%s' "$p1" "$p2" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -1000)
     local cnt2=$(echo "$src2" | grep -c . 2>/dev/null || echo 0)
     echo " 📦 geonode:       $cnt2 条"
     combined=$(printf '%s\n%s' "$combined" "$src2")
@@ -140,23 +140,23 @@ FETCH_AND_TEST_PROXY() {
     local global_raw src3=""
     global_raw=$(curl -s --max-time 20 \
         "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt" \
-        2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | shuf | head -300)
+        2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | shuf | head -400)
     
     if [ -n "$global_raw" ]; then
-        local ips_batch1 ips_batch2
+        local ips_batch1 ips_batch2 ips_batch3 ips_batch4
         ips_batch1=$(echo "$global_raw" | head -100 | awk -F: '{print "\"" $1 "\""}' | tr '\n' ',' | sed 's/,$//')
         ips_batch2=$(echo "$global_raw" | tail -n +101 | head -100 | awk -F: '{print "\"" $1 "\""}' | tr '\n' ',' | sed 's/,$//')
-        local geo1="" geo2=""
-        [ -n "$ips_batch1" ] && geo1=$(curl -s --max-time 12 -X POST \
-            "http://ip-api.com/batch?fields=countryCode,query" \
-            -H "Content-Type: application/json" \
-            --data "[${ips_batch1}]" 2>/dev/null)
-        [ -n "$ips_batch2" ] && geo2=$(curl -s --max-time 12 -X POST \
-            "http://ip-api.com/batch?fields=countryCode,query" \
-            -H "Content-Type: application/json" \
-            --data "[${ips_batch2}]" 2>/dev/null)
+        ips_batch3=$(echo "$global_raw" | tail -n +201 | head -100 | awk -F: '{print "\"" $1 "\""}' | tr '\n' ',' | sed 's/,$//')
+        ips_batch4=$(echo "$global_raw" | tail -n +301 | head -100 | awk -F: '{print "\"" $1 "\""}' | tr '\n' ',' | sed 's/,$//')
+        
+        local geo1="" geo2="" geo3="" geo4=""
+        [ -n "$ips_batch1" ] && geo1=$(curl -s --max-time 12 -X POST "http://ip-api.com/batch?fields=countryCode,query" -H "Content-Type: application/json" --data "[${ips_batch1}]" 2>/dev/null)
+        [ -n "$ips_batch2" ] && geo2=$(curl -s --max-time 12 -X POST "http://ip-api.com/batch?fields=countryCode,query" -H "Content-Type: application/json" --data "[${ips_batch2}]" 2>/dev/null)
+        [ -n "$ips_batch3" ] && geo3=$(curl -s --max-time 12 -X POST "http://ip-api.com/batch?fields=countryCode,query" -H "Content-Type: application/json" --data "[${ips_batch3}]" 2>/dev/null)
+        [ -n "$ips_batch4" ] && geo4=$(curl -s --max-time 12 -X POST "http://ip-api.com/batch?fields=countryCode,query" -H "Content-Type: application/json" --data "[${ips_batch4}]" 2>/dev/null)
+        
         local matched_ips
-        matched_ips=$(printf '%s\n%s' "$geo1" "$geo2" \
+        matched_ips=$(printf '%s\n%s\n%s\n%s' "$geo1" "$geo2" "$geo3" "$geo4" \
             | jq -r ".[]? | select(.countryCode==\"${country}\") | .query" 2>/dev/null)
         if [ -n "$matched_ips" ]; then
             while IFS= read -r mip; do
@@ -191,7 +191,7 @@ FETCH_AND_TEST_PROXY() {
 
     while IFS= read -r proxy; do
         [ -z "$proxy" ] && continue
-        [ "$tested" -ge 100 ] && break
+        [ "$tested" -ge 1000 ] && break
         tested=$((tested + 1))
         local phost="${proxy%%:*}"
         local pport="${proxy##*:}"
