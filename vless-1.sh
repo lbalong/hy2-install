@@ -94,7 +94,6 @@ GET_COUNTRY_CONFIG() {
 # ──────────────────────────────────────────────────────────────
 # 核心函数：从免费代理池拉取指定国家的 SOCKS5 代理并测试
 # 成功则设置全局变量 OUTBOUND_PROXY="IP:PORT"
-# 双关测试：连通性 + 速度 >= MIN_SPEED_KB (默认100KB/s)
 # ──────────────────────────────────────────────────────────────
 FETCH_AND_TEST_PROXY() {
     local country="$1"
@@ -111,40 +110,111 @@ FETCH_AND_TEST_PROXY() {
     src1=$(curl -s --max-time 15 \
         "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&country=${country}&protocol=socks5&proxy_format=ipport&format=text&timeout=5000" \
         2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
+    local cnt1=$(echo "$src1" | grep -c . 2>/dev/null || echo 0)
+    echo " 📦 proxyscrape:   $cnt1 条"
+    combined=$(printf '%s\n%s' "$combined" "$src1")
 
-    if [ -z "$raw_list" ]; then
-        echo " ❌ 三个代理源均未返回可用列表，将使用 VPS 直连出口"
+    # ── 数据源2: geonode 第1+2页（按国家过滤，最多100条）──────
+    local p1 p2 src2
+    p1=$(curl -s --max-time 15 \
+        "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=1&sort_by=lastChecked&sort_type=desc" \
+        2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
+    p2=$(curl -s --max-time 15 \
+        "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${country}&limit=50&page=2&sort_by=lastChecked&sort_type=desc" \
+        2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null)
+    src2=$(printf '%s\n%s' "$p1" "$p2" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -100)
+    local cnt2=$(echo "$src2" | grep -c . 2>/dev/null || echo 0)
+    echo " 📦 geonode:       $cnt2 条"
+    combined=$(printf '%s\n%s' "$combined" "$src2")
+
+    # ── 数据源3: TheSpeedX 全球大列表 + 批量地理过滤 ──────────
+    echo " 📦 TheSpeedX 全球库：正在拉取并按地区过滤（稍等）..."
+    local global_raw src3=""
+    global_raw=$(curl -s --max-time 20 \
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt" \
+        2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | shuf | head -300)
+    
+    if [ -n "$global_raw" ]; then
+        local ips_batch1 ips_batch2
+        ips_batch1=$(echo "$global_raw" | head -100 | awk -F: '{print "\"" $1 "\""}' | tr '\n' ',' | sed 's/,$//')
+        ips_batch2=$(echo "$global_raw" | tail -n +101 | head -100 | awk -F: '{print "\"" $1 "\""}' | tr '\n' ',' | sed 's/,$//')
+        local geo1="" geo2=""
+        [ -n "$ips_batch1" ] && geo1=$(curl -s --max-time 12 -X POST \
+            "http://ip-api.com/batch?fields=countryCode,query" \
+            -H "Content-Type: application/json" \
+            --data "[${ips_batch1}]" 2>/dev/null)
+        [ -n "$ips_batch2" ] && geo2=$(curl -s --max-time 12 -X POST \
+            "http://ip-api.com/batch?fields=countryCode,query" \
+            -H "Content-Type: application/json" \
+            --data "[${ips_batch2}]" 2>/dev/null)
+        local matched_ips
+        matched_ips=$(printf '%s\n%s' "$geo1" "$geo2" \
+            | jq -r ".[]? | select(.countryCode==\"${country}\") | .query" 2>/dev/null)
+        if [ -n "$matched_ips" ]; then
+            while IFS= read -r mip; do
+                local mport
+                mport=$(echo "$global_raw" | grep "^${mip}:" | head -1 | awk -F: '{print $2}')
+                [ -n "$mport" ] && src3=$(printf '%s\n%s:%s' "$src3" "$mip" "$mport")
+            done <<< "$matched_ips"
+            src3=$(echo "$src3" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$')
+        fi
+    fi
+    local cnt3=$(echo "$src3" | grep -c . 2>/dev/null || echo 0)
+    echo " 📦 TheSpeedX:     $cnt3 条（经地理过滤）"
+    combined=$(printf '%s\n%s' "$combined" "$src3")
+
+    # ── 去重 ───────────────────────────────────────────────────
+    combined=$(echo "$combined" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | sort -u)
+    local total
+    total=$(echo "$combined" | grep -c . 2>/dev/null || echo 0)
+    if [ "$total" -eq 0 ]; then
+        echo " ❌ 所有数据源均未找到 [$country] 地区的代理，将使用 VPS 直连出口"
         return 1
     fi
 
-    local total
-    total=$(echo "$raw_list" | wc -l)
-    echo " 📋 共获取 $total 个候选代理，开始逐一测速测通（最多测100个）..."
+    echo " ----------------------------------------------------------"
+    echo " 📋 合并去重后共 $total 个候选代理，开始两关测试（门槛 ${MIN_SPEED_KB} KB/s）..."
+    echo " ----------------------------------------------------------"
 
     local tested=0
     while IFS= read -r proxy; do
         [ -z "$proxy" ] && continue
         [ "$tested" -ge 100 ] && break
         tested=$((tested + 1))
-
         local phost="${proxy%%:*}"
         local pport="${proxy##*:}"
 
-        # 通过该代理访问 ip 检测服务，超时 6s
+        # 第一关：连通性 + 出口IP
         local exit_ip
-        exit_ip=$(curl -s --max-time 6 \
+        exit_ip=$(curl -s --max-time 5 \
             --socks5-hostname "${phost}:${pport}" \
             "https://api.ipify.org" 2>/dev/null)
-
-        if echo "$exit_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo " ✅ 可用代理找到！[$proxy] → 出口IP: $exit_ip"
-            OUTBOUND_PROXY="$proxy"
-            return 0
+        if ! echo "$exit_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo " ✗ [$tested/$total] $proxy → 无响应"
+            continue
         fi
-        echo " ✗ $proxy 不通 ($tested/$total)"
-    done <<< "$raw_list"
 
-    echo " ❌ 已测试 $tested 个代理（共 $total 个），均不可用，将使用 VPS 直连出口"
+        # 第二关：速度测试（下载 100KB，超时 8s）
+        local speed_bytes speed_kb=0
+        speed_bytes=$(curl -s --max-time 8 \
+            --socks5-hostname "${phost}:${pport}" \
+            -o /dev/null -w "%{speed_download}" \
+            "https://speed.cloudflare.com/__down?bytes=102400" 2>/dev/null)
+        if [ -n "$speed_bytes" ] && echo "$speed_bytes" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
+            speed_kb=$(awk "BEGIN {printf \"%d\", ${speed_bytes}/1024}")
+        fi
+        if [ "$speed_kb" -lt "$MIN_SPEED_KB" ]; then
+            echo " ✗ [$tested/$total] $proxy → $exit_ip，${speed_kb} KB/s（未达标）"
+            continue
+        fi
+
+        echo " ✅ [$tested/$total] $proxy → 出口IP: $exit_ip，速度: ${speed_kb} KB/s ✓"
+        OUTBOUND_PROXY="$proxy"
+        return 0
+    done <<< "$combined"
+
+    echo " ❌ 已测试 $tested 个（共 $total 个），无速度达标（≥${MIN_SPEED_KB} KB/s）的代理"
+    echo " 💡 提示：可调低速度门槛重试，或选 [99] 切换为 VPS 直连"
     return 1
 }
 
@@ -236,6 +306,7 @@ SBEOF
 
 # ──────────────────────────────────────────────────────────────
 # 部署代理看门狗（每小时自动检测代理存活，失效则换新）
+# 这里只做简单的看门狗：如果挂了就切换回直连或重新拉取同国家代理，但为了稳定，先实现重拉取
 # ──────────────────────────────────────────────────────────────
 DEPLOY_PROXY_WATCHDOG() {
     cat > /usr/local/bin/cf-proxy-watchdog << 'WATCHDOG'
@@ -263,79 +334,16 @@ if echo "$EXIT_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
     exit 0
 fi
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⚠️  代理失效，开始自动换源..." >> "$LOG"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] ⚠️  代理失效，将暂时降级为 VPS 直连" >> "$LOG"
 
-# 重新拉取
-COUNTRY="$LAST_GEO"
-RAW=$(curl -s --max-time 12 \
-    "https://api.proxyscrape.com/v3/free-proxy-list/get?request=displayproxies&country=${COUNTRY}&protocol=socks5&proxy_format=ipport&format=text&timeout=5000" \
-    2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$' | head -40)
-
-if [ -z "$RAW" ]; then
-    RAW=$(curl -s --max-time 12 \
-        "https://proxylist.geonode.com/api/proxy-list?protocols=socks5&country=${COUNTRY}&limit=50&page=1&sort_by=lastChecked&sort_type=desc" \
-        2>/dev/null | jq -r '.data[]? | "\(.ip):\(.port)"' 2>/dev/null | head -40)
-fi
-
-NEW_PROXY=""
-TESTED=0
-while IFS= read -r proxy; do
-    [ -z "$proxy" ] && continue
-    [ "$TESTED" -ge 20 ] && break
-    TESTED=$((TESTED+1))
-    PH="${proxy%%:*}"
-    PP="${proxy##*:}"
-    EIP=$(curl -s --max-time 6 --socks5-hostname "${PH}:${PP}" "https://api.ipify.org" 2>/dev/null)
-    if echo "$EIP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-        NEW_PROXY="$proxy"
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ 新代理: $proxy → 出口IP: $EIP" >> "$LOG"
-        break
-    fi
-done <<< "$RAW"
-
-if [ -z "$NEW_PROXY" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 未找到可用新代理，sing-box 暂时切换直连" >> "$LOG"
-    # 降级为直连
-    PHOST_NEW=""
-    PPORT_NEW=""
-else
-    PHOST_NEW="${NEW_PROXY%%:*}"
-    PPORT_NEW="${NEW_PROXY##*:}"
-    # 更新配置文件
-    sed -i "s|LAST_OUTBOUND_PROXY=.*|LAST_OUTBOUND_PROXY=\"${NEW_PROXY}\"|" "$CONFIG_FILE"
-fi
+# 为避免看门狗在后台长时间卡死，我们这里仅简单回退直连
+PHOST_NEW=""
+PPORT_NEW=""
+sed -i "s|LAST_OUTBOUND_PROXY=.*|LAST_OUTBOUND_PROXY=\"\"|" "$CONFIG_FILE"
 
 # 重写 sing-box 配置并重启
 SB_CONFIG="/etc/sing-box/config.json"
-if [ -n "$PHOST_NEW" ]; then
-    cat > "$SB_CONFIG" <<SBEOF
-{
-  "log": { "level": "info" },
-  "inbounds": [
-    {
-      "type": "vless",
-      "listen": "::",
-      "listen_port": ${LAST_PORT},
-      "users": [ { "uuid": "${LAST_UUID}" } ],
-      "transport": { "type": "ws", "path": "${LAST_WSPATH}" },
-      "tls": {
-        "enabled": true,
-        "server_name": "${LAST_DOMAIN}",
-        "certificate_path": "/root/cert/fullchain.cer",
-        "key_path": "/root/cert/private.key"
-      },
-      "tcp_fast_open": true
-    }
-  ],
-  "outbounds": [
-    { "type": "socks", "tag": "proxy-out", "server": "${PHOST_NEW}", "server_port": ${PPORT_NEW}, "version": "5" },
-    { "type": "direct", "tag": "direct" }
-  ],
-  "route": { "final": "proxy-out" }
-}
-SBEOF
-else
-    cat > "$SB_CONFIG" <<SBEOF
+cat > "$SB_CONFIG" <<SBEOF
 {
   "log": { "level": "info" },
   "inbounds": [
@@ -357,10 +365,9 @@ else
   "outbounds": [ { "type": "direct" } ]
 }
 SBEOF
-fi
 
 systemctl restart sing-box 2>/dev/null || true
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] sing-box 已重启，配置更新完成" >> "$LOG"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] sing-box 已重启，回退直连完成" >> "$LOG"
 WATCHDOG
 
     chmod +x /usr/local/bin/cf-proxy-watchdog
@@ -368,7 +375,7 @@ WATCHDOG
     # 注册每小时 cron 任务
     ( crontab -l 2>/dev/null | grep -v 'cf-proxy-watchdog'
       echo "0 * * * * /usr/local/bin/cf-proxy-watchdog" ) | crontab -
-    echo " ✅ 代理看门狗已部署（每小时自动检测并换源，日志: /var/log/cf-proxy-watchdog.log）"
+    echo " ✅ 代理看门狗已部署（每小时自动检测，失效回退直连以免断网，日志: /var/log/cf-proxy-watchdog.log）"
 }
 
 # ──────────────────────────────────────────────────────────────
@@ -382,6 +389,7 @@ if [ -f "$CF_CONF" ]; then
     source "$CF_CONF"
     PREF_IP="${LAST_PREF_IP:-104.16.0.1}"
     PROXY_STATUS="${LAST_OUTBOUND_PROXY:-VPS直连}"
+    [ -z "$LAST_OUTBOUND_PROXY" ] && PROXY_STATUS="VPS直连"
     clear
     echo "=========================================================="
     echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"
@@ -423,7 +431,7 @@ if [ "$CHOICE" -eq 1 ]; then
     OUTBOUND_PROXY=""
     if [ -n "$COUNTRY_CODE" ] && [ "$COUNTRY_SEL" != "99" ] && [ "$COUNTRY_SEL" != "0" ]; then
         set +e
-        FETCH_AND_TEST_PROXY "$COUNTRY_CODE"
+        FETCH_AND_TEST_PROXY "$COUNTRY_CODE" "100"
         set -e
     fi
 
@@ -557,7 +565,7 @@ elif [ "$CHOICE" -eq 2 ]; then
     OUTBOUND_PROXY=""
     if [ -n "$COUNTRY_CODE" ] && [ "$COUNTRY_SEL" != "99" ] && [ "$COUNTRY_SEL" != "0" ]; then
         set +e
-        FETCH_AND_TEST_PROXY "$COUNTRY_CODE"
+        FETCH_AND_TEST_PROXY "$COUNTRY_CODE" "100"
         set -e
     fi
 
