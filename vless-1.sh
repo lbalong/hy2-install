@@ -353,7 +353,8 @@ WRITE_SINGBOX_CONFIG() {
       "local_address": [${addresses}],
       "private_key": "${private_key}",
       "peer_public_key": "${public_key}",
-      "reserved": [0,0,0]
+      "reserved": [0,0,0],
+      "mtu": 1280
     },
     { "type": "direct", "tag": "direct" }
   ],
