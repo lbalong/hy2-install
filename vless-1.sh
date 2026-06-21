@@ -37,8 +37,12 @@ read -p "请选择操作 [1-4]: " CHOICE
 # ──────────────────────────────────────────────────────────────
 COUNTRY_MENU() {
     echo "=========================================================="
-    echo " 🌍 选择出口目标国家（流量将从该国 IP 出去）"
+    echo " 🌍 选择出口目标网络（流量将从该网络出去）"
     echo "=========================================================="
+    echo " [88] ⚡ 启用 Cloudflare WARP 出口 (推荐！秒开/解锁流媒体)"
+    echo " [99] 🚫 不使用代理，直接用 VPS 出口（直连）"
+    echo "----------------------------------------------------------"
+    echo " 以下为免费 SOCKS5 代理池（穷举测速，速度慢但可换国家）:"
     echo " [1]  🇺🇸 美国   (US)    [2]  🇯🇵 日本   (JP)"
     echo " [3]  🇸🇬 新加坡 (SG)    [4]  🇭🇰 香港   (HK)"
     echo " [5]  🇰🇷 韩国   (KR)    [6]  🇩🇪 德国   (DE)"
@@ -50,7 +54,6 @@ COUNTRY_MENU() {
     echo " [17] 🇦🇷 阿根廷 (AR)    [18] 🇳🇬 尼日利亚(NG)"
     echo "----------------------------------------------------------"
     echo " [0]  ✏️  手动输入 SOCKS5 代理地址（格式: IP:端口）"
-    echo " [99] 🚫 不使用代理，直接用 VPS 出口（直连）"
     echo "=========================================================="
 }
 
@@ -83,6 +86,19 @@ GET_COUNTRY_CONFIG() {
             COUNTRY_CODE="$GEO_TAG"
             PREF_IP_PRESET="${CURRENT_PREF_IP}"
             OUTBOUND_PROXY="$MANUAL_PROXY"
+            return 0
+            ;;
+        88)
+            GEO_TAG="WARP"
+            COUNTRY_CODE=""
+            PREF_IP_PRESET="${CURRENT_PREF_IP}"
+            if GENERATE_WARP_PROFILE; then
+                OUTBOUND_PROXY="WARP"
+            else
+                echo " ⚠️ WARP 启用失败，将回退到直连模式。"
+                GEO_TAG="Direct"
+                OUTBOUND_PROXY=""
+            fi
             return 0
             ;;
         99|*)
@@ -244,6 +260,54 @@ FETCH_AND_TEST_PROXY() {
 }
 
 # ──────────────────────────────────────────────────────────────
+# 生成 WARP WireGuard 配置
+# ──────────────────────────────────────────────────────────────
+GENERATE_WARP_PROFILE() {
+    mkdir -p /etc/cf_vless
+    if [ -f "/etc/cf_vless/wgcf-profile.conf" ]; then
+        echo " ⚡ 发现已有的 WARP 配置文件，跳过重新注册。"
+        return 0
+    fi
+
+    echo " 🌐 正在向 Cloudflare 申请 WARP 账户，这可能需要一点时间..."
+    local arch=""
+    case $(uname -m) in
+        x86_64) arch="amd64" ;;
+        aarch64) arch="arm64" ;;
+        *) echo "不支持的架构: $(uname -m)"; return 1 ;;
+    esac
+
+    local wgcf_url="https://github.com/ViRb3/wgcf/releases/download/v2.2.22/wgcf_2.2.22_linux_${arch}"
+    curl -sL --max-time 15 "$wgcf_url" -o /tmp/wgcf
+    if [ ! -f "/tmp/wgcf" ]; then
+        echo " ❌ 下载 wgcf 失败！"
+        return 1
+    fi
+    chmod +x /tmp/wgcf
+
+    cd /etc/cf_vless
+    rm -f wgcf-account.toml wgcf-profile.conf
+    
+    /tmp/wgcf register --accept-tos >/dev/null 2>&1
+    if [ ! -f "wgcf-account.toml" ]; then
+        echo " ❌ WARP 注册失败，可能是当前 VPS IP 被 Cloudflare 限制注册。"
+        rm -f /tmp/wgcf
+        return 1
+    fi
+
+    /tmp/wgcf generate >/dev/null 2>&1
+    if [ ! -f "wgcf-profile.conf" ]; then
+        echo " ❌ WARP 配置文件生成失败。"
+        rm -f /tmp/wgcf
+        return 1
+    fi
+
+    rm -f /tmp/wgcf
+    echo " ✅ WARP 账户申请并生成成功！"
+    return 0
+}
+
+# ──────────────────────────────────────────────────────────────
 # 写入 sing-box 配置（支持直连和 SOCKS5 出口两种模式）
 # ──────────────────────────────────────────────────────────────
 WRITE_SINGBOX_CONFIG() {
@@ -255,7 +319,48 @@ WRITE_SINGBOX_CONFIG() {
 
     local SB_CONFIG="/etc/sing-box/config.json"
 
-    if [ -n "$sb_proxy" ]; then
+    if [ "$sb_proxy" = "WARP" ]; then
+        echo " 🔀 sing-box 出口模式：Cloudflare WARP 骨干网"
+        local private_key=$(grep -m1 '^PrivateKey' /etc/cf_vless/wgcf-profile.conf | awk '{print $3}')
+        local public_key=$(grep -m1 '^PublicKey' /etc/cf_vless/wgcf-profile.conf | awk '{print $3}')
+        local addresses=$(grep '^Address' /etc/cf_vless/wgcf-profile.conf | awk '{print "\"" $3 "\""}' | tr '\n' ',' | sed 's/,$//')
+        
+        cat > "$SB_CONFIG" <<SBEOF
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "vless",
+      "listen": "::",
+      "listen_port": ${sb_port},
+      "users": [ { "uuid": "${sb_uuid}" } ],
+      "transport": { "type": "ws", "path": "${sb_wspath}" },
+      "tls": {
+        "enabled": true,
+        "server_name": "${sb_domain}",
+        "certificate_path": "/root/cert/fullchain.cer",
+        "key_path": "/root/cert/private.key"
+      },
+      "tcp_fast_open": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "wireguard",
+      "tag": "warp-out",
+      "server": "engage.cloudflareclient.com",
+      "server_port": 2408,
+      "local_address": [${addresses}],
+      "private_key": "${private_key}",
+      "peer_public_key": "${public_key}",
+      "reserved": [0,0,0]
+    },
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": { "final": "warp-out" }
+}
+SBEOF
+    elif [ -n "$sb_proxy" ]; then
         local phost="${sb_proxy%%:*}"
         local pport="${sb_proxy##*:}"
         echo " 🔀 sing-box 出口模式：SOCKS5 代理 → $sb_proxy"
@@ -341,8 +446,9 @@ LOG="/var/log/cf-proxy-watchdog.log"
 [ -f "$CONFIG_FILE" ] || exit 0
 source "$CONFIG_FILE"
 
-# 如果没有设置出口代理或国家，不处理
+# 如果没有设置出口代理或是WARP/直连，不处理
 [ -z "$LAST_OUTBOUND_PROXY" ] && exit 0
+[ "$LAST_OUTBOUND_PROXY" = "WARP" ] && exit 0
 [ -z "$LAST_GEO" ] || [ "$LAST_GEO" = "Direct" ] && exit 0
 
 PHOST="${LAST_OUTBOUND_PROXY%%:*}"
@@ -452,9 +558,11 @@ if [ "$CHOICE" -eq 1 ]; then
     GET_COUNTRY_CONFIG "${COUNTRY_SEL:-99}"
     CURRENT_PREF_IP="$PREF_IP_PRESET"
 
-    # ── 拉取出口代理（非直连模式）──────────────────────────
+    # ── 拉取出口代理（非直连模式/非WARP）──────────────────────────
     OUTBOUND_PROXY=""
-    if [ -n "$COUNTRY_CODE" ] && [ "$COUNTRY_SEL" != "99" ] && [ "$COUNTRY_SEL" != "0" ]; then
+    if [ "$COUNTRY_SEL" = "88" ]; then
+        OUTBOUND_PROXY="WARP"
+    elif [ -n "$COUNTRY_CODE" ] && [ "$COUNTRY_SEL" != "99" ] && [ "$COUNTRY_SEL" != "0" ]; then
         set +e
         FETCH_AND_TEST_PROXY "$COUNTRY_CODE" "100"
         set -e
@@ -588,7 +696,9 @@ elif [ "$CHOICE" -eq 2 ]; then
     GET_COUNTRY_CONFIG "${COUNTRY_SEL:-99}"
 
     OUTBOUND_PROXY=""
-    if [ -n "$COUNTRY_CODE" ] && [ "$COUNTRY_SEL" != "99" ] && [ "$COUNTRY_SEL" != "0" ]; then
+    if [ "$COUNTRY_SEL" = "88" ]; then
+        OUTBOUND_PROXY="WARP"
+    elif [ -n "$COUNTRY_CODE" ] && [ "$COUNTRY_SEL" != "99" ] && [ "$COUNTRY_SEL" != "0" ]; then
         set +e
         FETCH_AND_TEST_PROXY "$COUNTRY_CODE" "100"
         set -e
