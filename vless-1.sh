@@ -645,8 +645,11 @@ if [ "$CHOICE" -eq 1 ]; then
     if [ -f "/root/cert/fullchain.cer" ] && [ -f "/root/cert/private.key" ] && [ "$DOMAIN" = "$LAST_DOMAIN" ]; then
         echo " ✅ 检测到本地已有该域名的有效证书快照，自动开启智能复用，跳过申请流！"
         CERT_OK=1
-    elif ~/.acme.sh/acme.sh --list | grep -q "$DOMAIN"; then
-        echo " ✅ 检测到 acme.sh 内部仍存有该域名的证书缓存，强行复用防风控，跳过申请流！"
+    elif [ -f "/root/.acme.sh/${DOMAIN}_ecc/fullchain.cer" ] && [ -f "/root/.acme.sh/${DOMAIN}_ecc/${DOMAIN}.key" ]; then
+        echo " ✅ 检测到 acme.sh 内部物理文件夹仍存有证书，强行提取复用防风控！"
+        mkdir -p /root/cert
+        cp "/root/.acme.sh/${DOMAIN}_ecc/fullchain.cer" /root/cert/fullchain.cer
+        cp "/root/.acme.sh/${DOMAIN}_ecc/${DOMAIN}.key" /root/cert/private.key
         CERT_OK=1
     else
         echo " 正在首选 Let's Encrypt 签发正规证书..."
@@ -656,10 +659,10 @@ if [ "$CHOICE" -eq 1 ]; then
         else
             echo "=========================================================="
             echo " ⚠️ Let's Encrypt 触发官方频次锁死限制！"
-            echo " 🔄 脚本正在全自动切入挪威 Buypass CA 备用绿色通道..."
+            echo " 🔄 脚本正在全自动切入 ZeroSSL 备用绿色通道..."
             echo "=========================================================="
-            ~/.acme.sh/acme.sh --register-account -m admin@$DOMAIN --server buypass || true
-            ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force --server buypass
+            ~/.acme.sh/acme.sh --register-account -m admin@$DOMAIN --server zerossl || true
+            ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force --server zerossl
             if [ $? -eq 0 ]; then CERT_OK=1; fi
         fi
     fi
