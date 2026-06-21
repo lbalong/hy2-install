@@ -348,13 +348,18 @@ WRITE_SINGBOX_CONFIG() {
     {
       "type": "wireguard",
       "tag": "warp-out",
-      "server": "engage.cloudflareclient.com",
-      "server_port": 2408,
       "local_address": [${addresses}],
       "private_key": "${private_key}",
-      "peer_public_key": "${public_key}",
-      "reserved": [0,0,0],
-      "mtu": 1280
+      "mtu": 1280,
+      "peers": [
+        {
+          "server": "engage.cloudflareclient.com",
+          "server_port": 2408,
+          "public_key": "${public_key}",
+          "allowed_ips": ["0.0.0.0/0", "::/0"],
+          "reserved": [0,0,0]
+        }
+      ]
     },
     { "type": "direct", "tag": "direct" }
   ],
