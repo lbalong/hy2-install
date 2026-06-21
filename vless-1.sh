@@ -645,6 +645,9 @@ if [ "$CHOICE" -eq 1 ]; then
     if [ -f "/root/cert/fullchain.cer" ] && [ -f "/root/cert/private.key" ] && [ "$DOMAIN" = "$LAST_DOMAIN" ]; then
         echo " ✅ 检测到本地已有该域名的有效证书快照，自动开启智能复用，跳过申请流！"
         CERT_OK=1
+    elif ~/.acme.sh/acme.sh --list | grep -q "$DOMAIN"; then
+        echo " ✅ 检测到 acme.sh 内部仍存有该域名的证书缓存，强行复用防风控，跳过申请流！"
+        CERT_OK=1
     else
         echo " 正在首选 Let's Encrypt 签发正规证书..."
         ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone --keylength ec-256 --force
