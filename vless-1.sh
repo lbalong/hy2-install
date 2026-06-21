@@ -29,8 +29,9 @@ echo " 1. 安装/更新 VLESS-WS-TLS 节点 (内核超频调校 + 证书复用)"
 echo " 2. 更换出口国家 / 切换直连  (当前出口: [$CURRENT_GEO] $CURRENT_PROXY)"
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载节点服务"
+echo " 5. 强制刷新/更换 WARP 落地 IP"
 echo "=========================================================="
-read -p "请选择操作 [1-4]: " CHOICE
+read -p "请选择操作 [1-5]: " CHOICE
 
 # ──────────────────────────────────────────────────────────────
 # 国家菜单：同时决定 CF 入口标签 和 出口 SOCKS5 代理拉取地区
@@ -760,6 +761,41 @@ elif [ "$CHOICE" -eq 4 ]; then
     ( crontab -l 2>/dev/null | grep -v 'cf-proxy-watchdog' ) | crontab - 2>/dev/null || true
     rm -rf /etc/cf_vless /etc/sing-box /usr/local/bin/sd /usr/local/bin/cf-proxy-watchdog /root/cert
     echo " 卸载清洗完成！"
+
+# ══════════════════════════════════════════════════════════════
+#  选项 5：刷新/更换 WARP 落地 IP
+# ══════════════════════════════════════════════════════════════
+elif [ "$CHOICE" -eq 5 ]; then
+    if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
+        echo " ❌ 错误：请先选择 [1] 安装节点！"
+        exit 1
+    fi
+    echo "=========================================================="
+    echo " 🔄 正在销毁当前 WARP 账户，向 Cloudflare 重新申请全新 IP..."
+    echo "=========================================================="
+    # 删掉旧账号配置，强迫重新生成
+    rm -f /etc/cf_vless/wgcf-account.toml /etc/cf_vless/wgcf-profile.conf
+    
+    source "$CONFIG_FILE"
+    CURRENT_PREF_IP="${LAST_PREF_IP:-$RANDOM_CF_IP}"
+    
+    if GENERATE_WARP_PROFILE; then
+        WRITE_SINGBOX_CONFIG "$LAST_PORT" "$LAST_DOMAIN" "$LAST_UUID" "$LAST_WSPATH" "WARP"
+        systemctl restart sing-box 2>/dev/null || true
+        
+        # 更新持久化记录
+        sed -i "s|LAST_GEO=.*|LAST_GEO=\"WARP\"|" "$CONFIG_FILE"
+        if grep -q 'LAST_OUTBOUND_PROXY' "$CONFIG_FILE"; then
+            sed -i "s|LAST_OUTBOUND_PROXY=.*|LAST_OUTBOUND_PROXY=\"WARP\"|" "$CONFIG_FILE"
+        else
+            echo "LAST_OUTBOUND_PROXY=\"WARP\"" >> "$CONFIG_FILE"
+        fi
+        
+        echo " 🎉 WARP 落地 IP 刷新成功！sing-box 已重启生效。"
+        echo " 🌐 请在本地连上节点后，浏览器访问 https://ip.sb 查看你的全新原生 IP！"
+    else
+        echo " ❌ WARP 刷新失败，可能是当前服务器 IP 被 CF 暂时限制注册，请过几个小时再试。"
+    fi
 
 else
     exit 1
