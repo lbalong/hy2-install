@@ -328,6 +328,24 @@ WRITE_SINGBOX_CONFIG() {
         cat > "$SB_CONFIG" <<SBEOF
 {
   "log": { "level": "info" },
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "warp-out",
+      "address": [${addresses}],
+      "private_key": "${private_key}",
+      "mtu": 1280,
+      "peers": [
+        {
+          "address": "engage.cloudflareclient.com",
+          "port": 2408,
+          "public_key": "${public_key}",
+          "allowed_ips": ["0.0.0.0/0", "::/0"],
+          "reserved": [0,0,0]
+        }
+      ]
+    }
+  ],
   "inbounds": [
     {
       "type": "vless",
@@ -345,22 +363,6 @@ WRITE_SINGBOX_CONFIG() {
     }
   ],
   "outbounds": [
-    {
-      "type": "wireguard",
-      "tag": "warp-out",
-      "address": [${addresses}],
-      "private_key": "${private_key}",
-      "mtu": 1280,
-      "peers": [
-        {
-          "server": "engage.cloudflareclient.com",
-          "server_port": 2408,
-          "public_key": "${public_key}",
-          "allowed_ips": ["0.0.0.0/0", "::/0"],
-          "reserved": [0,0,0]
-        }
-      ]
-    },
     { "type": "direct", "tag": "direct" }
   ],
   "route": { "final": "warp-out" }
