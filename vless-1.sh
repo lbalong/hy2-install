@@ -348,7 +348,7 @@ WRITE_SINGBOX_CONFIG() {
     {
       "type": "wireguard",
       "tag": "warp-out",
-      "local_address": [${addresses}],
+      "address": [${addresses}],
       "private_key": "${private_key}",
       "mtu": 1280,
       "peers": [
