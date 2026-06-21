@@ -526,15 +526,26 @@ deploy_shortcut() {
 CF_CONF="/etc/cf_vless/last_cfg.conf"
 if [ -f "$CF_CONF" ]; then
     source "$CF_CONF"
-    PREF_IP="${LAST_PREF_IP:-104.16.0.1}"
     PROXY_STATUS="${LAST_OUTBOUND_PROXY:-VPS直连}"
     [ -z "$LAST_OUTBOUND_PROXY" ] && PROXY_STATUS="VPS直连"
+    
+    # 用户的优选IP库
+    USER_CF_IPS=(108.162.198.5 172.64.229.8 172.64.229.150 172.64.229.221 108.162.198.1 172.64.229.44 172.64.229.100 172.64.53.96 172.64.53.8 108.162.198.8 108.162.198.100 172.64.148.221 173.245.58.50 173.245.58.172)
+    
     clear
     echo "=========================================================="
-    echo " 📋 双引流节点汇总（可直接两行全选，一次性批量复制导入）"
+    echo " 📋 双引流节点汇总（请全部选中复制，导入 v2rayN 测速）"
     echo "=========================================================="
-    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Domain-$LAST_PORT"
-    echo "vless://$LAST_UUID@$PREF_IP:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#CF-[${LAST_GEO:-Node}]-Optimized-$LAST_PORT"
+    echo "vless://$LAST_UUID@$LAST_DOMAIN:$LAST_PORT?encryption=none&security=tls&sni=$LAST_DOMAIN&type=ws&host=$LAST_DOMAIN&path=$LAST_ENCODED_PATH#00-CF-[${LAST_GEO:-Node}]-Domain"
+    
+    # 遍历生成所有优选IP节点
+    counter=1
+    for ip in "${USER_CF_IPS[@]}"; do
+        printf "vless://%s@%s:%s?encryption=none&security=tls&sni=%s&type=ws&host=%s&path=%s#%02d-CF-[%s]-IP-%s\n" \
+            "$LAST_UUID" "$ip" "$LAST_PORT" "$LAST_DOMAIN" "$LAST_DOMAIN" "$LAST_ENCODED_PATH" "$counter" "${LAST_GEO:-Node}" "$ip"
+        counter=$((counter + 1))
+    done
+    
     echo "=========================================================="
     echo " 🌍 出口国家: [${LAST_GEO:-未设置}]  出口代理: $PROXY_STATUS"
     echo "=========================================================="
