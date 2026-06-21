@@ -91,20 +91,26 @@ GET_COUNTRY_CONFIG() {
             return 0
             ;;
         88)
-            GEO_TAG="WARP"
+            VPS_CC=$(curl -s -m 3 ipinfo.io/country 2>/dev/null | tr -d '\n')
+            [ -z "$VPS_CC" ] && VPS_CC="WARP"
+            GEO_TAG="$VPS_CC"
             COUNTRY_CODE=""
             PREF_IP_PRESET="${CURRENT_PREF_IP}"
             if GENERATE_WARP_PROFILE; then
                 OUTBOUND_PROXY="WARP"
             else
                 echo " ⚠️ WARP 启用失败，将回退到直连模式。"
-                GEO_TAG="Direct"
+                VPS_CC=$(curl -s -m 3 ipinfo.io/country 2>/dev/null | tr -d '\n')
+                [ -z "$VPS_CC" ] && VPS_CC="Direct"
+                GEO_TAG="$VPS_CC"
                 OUTBOUND_PROXY=""
             fi
             return 0
             ;;
         99|*)
-            GEO_TAG="Direct"
+            VPS_CC=$(curl -s -m 3 ipinfo.io/country 2>/dev/null | tr -d '\n')
+            [ -z "$VPS_CC" ] && VPS_CC="Direct"
+            GEO_TAG="$VPS_CC"
             COUNTRY_CODE=""
             PREF_IP_PRESET="${CURRENT_PREF_IP}"
             OUTBOUND_PROXY=""
@@ -780,7 +786,9 @@ elif [ "$CHOICE" -eq 5 ]; then
         systemctl restart sing-box 2>/dev/null || true
         
         # 更新持久化记录
-        sed -i "s|LAST_GEO=.*|LAST_GEO=\"WARP\"|" "$CONFIG_FILE"
+        VPS_CC=$(curl -s -m 3 ipinfo.io/country 2>/dev/null | tr -d '\n')
+        [ -z "$VPS_CC" ] && VPS_CC="WARP"
+        sed -i "s|LAST_GEO=.*|LAST_GEO=\"$VPS_CC\"|" "$CONFIG_FILE"
         if grep -q 'LAST_OUTBOUND_PROXY' "$CONFIG_FILE"; then
             sed -i "s|LAST_OUTBOUND_PROXY=.*|LAST_OUTBOUND_PROXY=\"WARP\"|" "$CONFIG_FILE"
         else
