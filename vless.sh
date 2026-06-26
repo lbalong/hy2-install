@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# 兼容管道执行：将 stdin 重定向到终端，确保 read 能正常交互
-exec < /dev/tty
+# 兼容管道执行：打开终端到 fd 3，所有 read 从 fd 3 读取用户输入
+exec 3</dev/tty
 
 # 检查是否为 Root 用户
 if [ "$EUID" -ne 0 ]; then
@@ -28,10 +28,10 @@ fi
 
 # 3. 询问是否需要域名 (默认 n)
 if [ -n "$LAST_NEED_DOMAIN" ]; then
-    read -p "👉 是否需要使用域名连接？[y/N] (直接回车自动使用上次的: $LAST_NEED_DOMAIN): " NEED_DOMAIN < /dev/tty
+    read -p "👉 是否需要使用域名连接？[y/N] (直接回车自动使用上次的: $LAST_NEED_DOMAIN): " NEED_DOMAIN <&3
     [ -z "$NEED_DOMAIN" ] && NEED_DOMAIN=$LAST_NEED_DOMAIN
 else
-    read -p "👉 是否需要使用域名连接？[y/N] (直接回车默认不使用 N): " NEED_DOMAIN < /dev/tty
+    read -p "👉 是否需要使用域名连接？[y/N] (直接回车默认不使用 N): " NEED_DOMAIN <&3
     [ -z "$NEED_DOMAIN" ] && NEED_DOMAIN="n"
 fi
 
@@ -39,10 +39,10 @@ fi
 if [[ "$NEED_DOMAIN" =~ ^[Yy]$ ]]; then
     TYPE="DOMAIN"
     if [ -n "$LAST_DOMAIN" ]; then
-        read -p "👉 请输入已解析的完整域名 (直接回车自动使用上次的: $LAST_DOMAIN): " DOMAIN < /dev/tty
+        read -p "👉 请输入已解析的完整域名 (直接回车自动使用上次的: $LAST_DOMAIN): " DOMAIN <&3
         [ -z "$DOMAIN" ] && DOMAIN=$LAST_DOMAIN
     else
-        read -p "👉 请输入已解析的完整域名 (例如 sg.099889.xyz): " DOMAIN < /dev/tty
+        read -p "👉 请输入已解析的完整域名 (例如 sg.099889.xyz): " DOMAIN <&3
         if [ -z "$DOMAIN" ]; then echo "❌ 错误：域名不能为空！"; exit 1; fi
     fi
 
@@ -55,7 +55,7 @@ if [[ "$NEED_DOMAIN" =~ ^[Yy]$ ]]; then
         echo "   - 当前 VPS 本机公网 IP: $IP"
         echo "   - 你的域名当前解析到的 IP: $DOMAIN_IP"
         echo "=========================================="
-        read -p "👉 是否确认解析已改，并强行继续安装？(y/N): " FORCE_INSTALL < /dev/tty
+        read -p "👉 是否确认解析已改，并强行继续安装？(y/N): " FORCE_INSTALL <&3
         if [[ ! "$FORCE_INSTALL" =~ ^[Yy]$ ]]; then
             echo "❌ 已安全终止安装。"
             exit 1
@@ -69,11 +69,11 @@ fi
 
 # 5. 端口收集（带历史回显记忆）
 if [ -n "$LAST_PORT" ]; then
-    read -p "👉 请输入节点监听端口 (直接回车自动使用上次的: $LAST_PORT): " PORT < /dev/tty
+    read -p "👉 请输入节点监听端口 (直接回车自动使用上次的: $LAST_PORT): " PORT <&3
     [ -z "$PORT" ] && PORT=$LAST_PORT
 else
     DEFAULT_PORT=$(shuf -i 10000-65000 -n 1)
-    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT < /dev/tty
+    read -p "👉 请输入节点监听端口 (直接回车使用随机端口 $DEFAULT_PORT): " PORT <&3
     [ -z "$PORT" ] && PORT=$DEFAULT_PORT
 fi
 
@@ -94,14 +94,14 @@ echo "=========================================="
 DEST_OPTIONS=("gateway.icloud.com" "itunes.apple.com" "swdist.apple.com" "www.samsung.com" "www.logitech.com" "dl.google.com")
 
 if [ -n "$LAST_DEST" ]; then
-    read -p "👉 请选择 [1-7] (直接回车自动使用上次的: $LAST_DEST): " DEST_CHOICE < /dev/tty
+    read -p "👉 请选择 [1-7] (直接回车自动使用上次的: $LAST_DEST): " DEST_CHOICE <&3
     if [ -z "$DEST_CHOICE" ]; then
         DEST_SERVER="$LAST_DEST"
     else
         if [ "$DEST_CHOICE" -ge 1 ] 2>/dev/null && [ "$DEST_CHOICE" -le 6 ]; then
             DEST_SERVER="${DEST_OPTIONS[$((DEST_CHOICE-1))]}"
         elif [ "$DEST_CHOICE" == "7" ]; then
-            read -p "👉 请输入自定义 dest 域名: " CUSTOM_DEST < /dev/tty
+            read -p "👉 请输入自定义 dest 域名: " CUSTOM_DEST <&3
             if [ -z "$CUSTOM_DEST" ]; then echo "❌ 错误：域名不能为空！"; exit 1; fi
             DEST_SERVER="$CUSTOM_DEST"
         else
@@ -109,12 +109,12 @@ if [ -n "$LAST_DEST" ]; then
         fi
     fi
 else
-    read -p "👉 请选择 [1-7] (直接回车默认 1): " DEST_CHOICE < /dev/tty
+    read -p "👉 请选择 [1-7] (直接回车默认 1): " DEST_CHOICE <&3
     [ -z "$DEST_CHOICE" ] && DEST_CHOICE="1"
     if [ "$DEST_CHOICE" -ge 1 ] 2>/dev/null && [ "$DEST_CHOICE" -le 6 ]; then
         DEST_SERVER="${DEST_OPTIONS[$((DEST_CHOICE-1))]}"
     elif [ "$DEST_CHOICE" == "7" ]; then
-        read -p "👉 请输入自定义 dest 域名: " CUSTOM_DEST < /dev/tty
+        read -p "👉 请输入自定义 dest 域名: " CUSTOM_DEST <&3
         if [ -z "$CUSTOM_DEST" ]; then echo "❌ 错误：域名不能为空！"; exit 1; fi
         DEST_SERVER="$CUSTOM_DEST"
     else
@@ -128,7 +128,7 @@ if curl -sI --tlsv1.3 --connect-timeout 5 "https://$DEST_SERVER" >/dev/null 2>&1
     echo "✅ $DEST_SERVER 支持 TLS 1.3，验证通过。"
 else
     echo "⚠️  警告：$DEST_SERVER 的 TLS 1.3 验证未通过（可能是网络原因）。"
-    read -p "👉 是否继续使用该目标？(y/N): " FORCE_DEST < /dev/tty
+    read -p "👉 是否继续使用该目标？(y/N): " FORCE_DEST <&3
     if [[ ! "$FORCE_DEST" =~ ^[Yy]$ ]]; then
         echo "❌ 已终止安装。"
         exit 1
@@ -182,7 +182,7 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 # 11. 核心参数生成（每台机器独立密钥对，UUID 可复用）
 # UUID：如果上次有保存则复用，否则新生成
 if [ -n "$LAST_UUID" ]; then
-    read -p "👉 是否复用上次的 UUID？[Y/n] (直接回车复用: ${LAST_UUID:0:8}...): " REUSE_UUID < /dev/tty
+    read -p "👉 是否复用上次的 UUID？[Y/n] (直接回车复用: ${LAST_UUID:0:8}...): " REUSE_UUID <&3
     if [[ "$REUSE_UUID" =~ ^[Nn]$ ]]; then
         UUID=$(cat /proc/sys/kernel/random/uuid)
         echo "🔑 已生成新 UUID: $UUID"
