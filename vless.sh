@@ -201,8 +201,8 @@ if [ -z "$KEY_OUTPUT" ]; then
     echo "❌ 错误：xray x25519 命令执行失败，请检查 Xray 是否正确安装。"
     exit 1
 fi
-PRIVATE_KEY=$(echo "$KEY_OUTPUT" | grep "Private key:" | awk '{print $3}')
-PUBLIC_KEY=$(echo "$KEY_OUTPUT" | grep "Public key:" | awk '{print $3}')
+PRIVATE_KEY=$(echo "$KEY_OUTPUT" | grep "PrivateKey:" | awk '{print $2}')
+PUBLIC_KEY=$(echo "$KEY_OUTPUT" | grep "PublicKey)" | awk '{print $3}')
 
 if [ -z "$PRIVATE_KEY" ] || [ -z "$PUBLIC_KEY" ]; then
     echo "❌ 错误：密钥对生成失败！"
