@@ -27,6 +27,10 @@ if [ -z "$IP" ]; then
 fi
 
 # 3. 询问是否需要域名 (默认 n)
+# 校验历史值合法性（只允许 y/n，防止旧配置文件存了错误值）
+if [ -n "$LAST_NEED_DOMAIN" ] && [[ ! "$LAST_NEED_DOMAIN" =~ ^[YyNn]$ ]]; then
+    LAST_NEED_DOMAIN=""
+fi
 if [ -n "$LAST_NEED_DOMAIN" ]; then
     read -p "👉 是否需要使用域名连接？[y/N] (直接回车自动使用上次的: $LAST_NEED_DOMAIN): " NEED_DOMAIN <&3
     [ -z "$NEED_DOMAIN" ] && NEED_DOMAIN=$LAST_NEED_DOMAIN
