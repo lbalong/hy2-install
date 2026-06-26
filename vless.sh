@@ -1,7 +1,16 @@
 #!/bin/bash
 
-# 兼容管道执行：打开终端到 fd 3，所有 read 从 fd 3 读取用户输入
-exec 3</dev/tty
+# 兼容管道与直接执行：优先打开终端到 fd 3，否则回退到 stdin
+if [ -c /dev/tty ]; then
+    exec 3</dev/tty
+else
+    exec 3<&0
+fi
+
+# 清空终端输入缓冲区，防止用户复制粘贴脚本时带入的多余换行导致首个 read 被跳过
+if [ -t 3 ]; then
+    while read -t 0.01 -r <&3; do :; done
+fi
 
 # 检查是否为 Root 用户
 if [ "$EUID" -ne 0 ]; then
@@ -140,6 +149,9 @@ else
 fi
 
 # 7. 持久化保存本次输入，供下次运行自动检测
+# 如果本次是 IP 模式，保留历史域名以防下次切回域名模式需要重新输入
+[ -z "$DOMAIN" ] && DOMAIN="$LAST_DOMAIN"
+
 echo "LAST_NEED_DOMAIN=\"$NEED_DOMAIN\"" > "$CONFIG_FILE"
 echo "LAST_DOMAIN=\"$DOMAIN\"" >> "$CONFIG_FILE"
 echo "LAST_PORT=\"$PORT\"" >> "$CONFIG_FILE"
