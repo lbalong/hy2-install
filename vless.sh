@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# 兼容管道执行：将 stdin 重定向到终端，确保 read 能正常交互
+exec < /dev/tty
+
 # 检查是否为 Root 用户
 if [ "$EUID" -ne 0 ]; then
   echo "错误：请使用 root 用户运行此脚本！"
