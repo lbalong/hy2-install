@@ -183,17 +183,10 @@ elif command -v yum >/dev/null; then
 fi
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)"
 
-# 11. 核心参数生成（每台机器独立密钥对，UUID 可复用）
-# UUID：如果上次有保存则复用，否则新生成
+# 11. 核心参数生成（每台机器独立密钥对，UUID 自动复用）
 if [ -n "$LAST_UUID" ]; then
-    read -p "👉 是否复用上次的 UUID？[Y/n] (直接回车复用: ${LAST_UUID:0:8}...): " REUSE_UUID <&3
-    if [[ "$REUSE_UUID" =~ ^[Nn]$ ]]; then
-        UUID=$(cat /proc/sys/kernel/random/uuid)
-        echo "🔑 已生成新 UUID: $UUID"
-    else
-        UUID="$LAST_UUID"
-        echo "🔑 复用已有 UUID: $UUID"
-    fi
+    UUID="$LAST_UUID"
+    echo "🔑 复用已有 UUID: $UUID"
 else
     UUID=$(cat /proc/sys/kernel/random/uuid)
     echo "🔑 已生成新 UUID: $UUID"
