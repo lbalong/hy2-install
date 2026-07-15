@@ -30,9 +30,8 @@ echo " 2. 更换出口国家 / 切换直连  (当前出口: [$CURRENT_GEO] $CURR
 echo " 3. 查看当前已建节点链接汇总 (快捷命令: sd)"
 echo " 4. 彻底卸载节点服务"
 echo " 5. 强制刷新/更换 WARP 落地 IP"
-echo " 6. 修改节点入站端口 (支持秒切 CF 官方安全端口)"
 echo "=========================================================="
-read -p "请选择操作 [1-6]: " CHOICE
+read -p "请选择操作 [1-5]: " CHOICE
 
 # ──────────────────────────────────────────────────────────────
 # 国家菜单：同时决定 CF 入口标签 和 出口 SOCKS5 代理拉取地区
@@ -100,9 +99,7 @@ GET_COUNTRY_CONFIG() {
                 OUTBOUND_PROXY="WARP"
             else
                 echo " ⚠️ WARP 启用失败，将回退到直连模式。"
-                VPS_CC=$(curl -s -m 3 ipinfo.io/country 2>/dev/null | tr -d '\n')
-                [ -z "$VPS_CC" ] && VPS_CC="Direct"
-                GEO_TAG="$VPS_CC"
+                GEO_TAG="Direct"
                 OUTBOUND_PROXY=""
             fi
             return 0
@@ -800,48 +797,6 @@ elif [ "$CHOICE" -eq 5 ]; then
     else
         echo " ❌ WARP 刷新失败，可能是当前服务器 IP 被 CF 暂时限制注册，请过几个小时再试。"
     fi
-
-# ══════════════════════════════════════════════════════════════
-#  选项 6：修改节点端口（秒切热更）
-# ══════════════════════════════════════════════════════════════
-elif [ "$CHOICE" -eq 6 ]; then
-    if [ ! -f "$CONFIG_FILE" ] || [ -z "$LAST_DOMAIN" ]; then
-        echo " ❌ 错误：请先选择 [1] 安装节点！"
-        exit 1
-    fi
-    source "$CONFIG_FILE"
-    echo "=========================================================="
-    echo " 🔄 节点端口热切换"
-    echo " 当前端口: $LAST_PORT"
-    echo " 允许的 Cloudflare HTTPS 端口: 443, 2053, 2083, 2087, 2096, 8443"
-    echo "=========================================================="
-    while true; do
-        read -p " 请输入新的端口号: " PORT_INPUT
-        if [ "$PORT_INPUT" = "443" ] || [ "$PORT_INPUT" = "2053" ] || [ "$PORT_INPUT" = "2083" ] || [ "$PORT_INPUT" = "2087" ] || [ "$PORT_INPUT" = "2096" ] || [ "$PORT_INPUT" = "8443" ]; then 
-            NEW_PORT="$PORT_INPUT"
-            break
-        fi
-        echo " ❌ 错误：输入的端口不在允许列表中，请重新输入！"
-    done
-
-    if [ "$NEW_PORT" = "$LAST_PORT" ]; then
-        echo " ⚠️ 新端口与当前端口相同，无需修改。"
-        exit 0
-    fi
-
-    # 重写配置文件
-    WRITE_SINGBOX_CONFIG "$NEW_PORT" "$LAST_DOMAIN" "$LAST_UUID" "$LAST_WSPATH" "$LAST_OUTBOUND_PROXY"
-    ufw allow $NEW_PORT/tcp 2>/dev/null || true
-    systemctl restart sing-box 2>/dev/null || true
-
-    # 更新持久化记录
-    sed -i "s|LAST_PORT=.*|LAST_PORT=\"$NEW_PORT\"|" "$CONFIG_FILE"
-
-    # 更新快捷命令
-    deploy_shortcut
-    clear
-    echo " 🎉 端口已成功秒切为 $NEW_PORT ！请重新复制下方节点导入："
-    /usr/local/bin/sd
 
 else
     exit 1
