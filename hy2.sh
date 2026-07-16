@@ -87,13 +87,27 @@ EOF_SHOW
 get_domain() {
     if [ -f "/etc/hy2_tuic/vps_domain.txt" ]; then
         local cached_domain=$(cat /etc/hy2_tuic/vps_domain.txt)
-        read -p "📋 检测到历史缓存域名 [$cached_domain]，是否直接复用？[Y/n]: " CONFIRM
+        read -p "📋 检测到历史缓存域名/IP [$cached_domain]，是否直接复用？[Y/n]: " CONFIRM
         if [ "$CONFIRM" = "n" ] || [ "$CONFIRM" = "N" ]; then
             rm -f /etc/hy2_tuic/vps_domain.txt
         else
             DOMAIN=$cached_domain
             return 0
         fi
+    fi
+
+    echo "=========================================="
+    echo "请选择节点证书模式："
+    echo "1. 域名模式 (自动申请 Let's Encrypt 证书)"
+    echo "2. 纯 IP 模式 (自动生成自签名证书)"
+    echo "=========================================="
+    read -p "请输入选择 [1-2]: " CERT_MODE
+
+    if [ "$CERT_MODE" = "2" ]; then
+        DOMAIN=$IP
+        echo "$DOMAIN" > /etc/hy2_tuic/vps_domain.txt
+        echo "✅ 已选择纯 IP 模式，绑定本机 IP ($IP)"
+        return 0
     fi
 
     while true; do
@@ -162,6 +176,14 @@ sync_cert() {
         return 0
     fi
 
+    if [ "$DOMAIN" = "$IP" ]; then
+        echo "🔄 正在生成自签名证书用于纯 IP 模式..."
+        openssl ecparam -genkey -name prime256v1 -out "$target_dir/server.key" 2>/dev/null
+        openssl req -new -x509 -days 3650 -key "$target_dir/server.key" -out "$target_dir/server.crt" -subj "/CN=$IP" 2>/dev/null
+        echo "✅ 自签名证书生成成功！"
+        return 0
+    fi
+
     echo "🔄 正在向 Let's Encrypt 申请正式合规证书..."
     systemctl stop nginx apache2 2>/dev/null
     curl -sSL https://get.acme.sh | sh -s email=myhy2tuic@gmail.com
@@ -215,7 +237,11 @@ EOF_HY2_YAML
         systemctl daemon-reload && systemctl enable hysteria-server && systemctl restart hysteria-server
         
         GEO_TAG=$(get_geo_tag)
-        HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_${GEO_TAG}"
+        if [ "$DOMAIN" = "$IP" ]; then
+            HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?insecure=1#Hy2_${GEO_TAG}"
+        else
+            HY2_LINK="hy2://$PASSWORD@$DOMAIN:$PORT?sni=$DOMAIN#Hy2_${GEO_TAG}"
+        fi
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#Hy2_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         echo "$HY2_LINK" >> /etc/hy2_tuic/saved_links.txt
@@ -270,7 +296,11 @@ EOF_TUIC_SERVICE
         systemctl daemon-reload && systemctl enable tuic && systemctl restart tuic
         
         GEO_TAG=$(get_geo_tag)
-        TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
+        if [ "$DOMAIN" = "$IP" ]; then
+            TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&allow_insecure=1#TUIC_${GEO_TAG}"
+        else
+            TUIC_LINK="tuic://$UUID:$PASSWORD@$DOMAIN:$PORT?congestion_control=bbr&alpn=h3&sni=$DOMAIN#TUIC_${GEO_TAG}"
+        fi
         touch /etc/hy2_tuic/saved_links.txt
         sed -i '/#TUIC_/d' /etc/hy2_tuic/saved_links.txt 2>/dev/null
         echo "$TUIC_LINK" >> /etc/hy2_tuic/saved_links.txt
