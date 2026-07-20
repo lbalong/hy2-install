@@ -17,61 +17,48 @@ uninstall_node() {
       systemctl disable xray
   fi
 
-  # 调用官方卸载脚本
   if command -v curl >/dev/null; then
       bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ remove >/dev/null 2>&1
   fi
 
-  # 深度清理 Acme.sh 证书和配置文件夹
   if [ -f ~/.acme.sh/acme.sh ]; then
       ~/.acme.sh/acme.sh --uninstall >/dev/null 2>&1
   fi
-  rm -rf ~/.acme.sh
-  rm -rf /usr/local/etc/xray
+  rm -rf ~/.acme.sh /usr/local/etc/xray
 
-  echo "✅ 卸载完成！Xray 核心及 TLS 证书已全部清除。"
+  echo "✅ 卸载完成！"
   exit 0
 }
 
 # ================= 安装节点功能 =================
 install_node() {
   echo "=========================================================="
-  echo "  VLESS + HTTPUpgrade/xHTTP + TLS 安装 (基于官方核心)"
+  echo "  VLESS + HTTPUpgrade/xHTTP + TLS (CDN ALPN 修复版)"
   echo "=========================================================="
 
-  # 1. 获取公网 IP 和输入域名
   IP=$(curl -sS4 https://ifconfig.me || curl -sS4 https://api.ipify.org)
-  read -p "👉 请输入已解析到本机 ($IP) 的完整域名 (例如 sg.abc.xyz): " DOMAIN
+  read -p "👉 请输入已解析的域名 (确保在 CF 中已点亮小黄云): " DOMAIN
   if [ -z "$DOMAIN" ]; then echo "❌ 错误：域名不能为空！"; exit 1; fi
 
-  # 验证域名解析是否准确 (申请证书必须)
-  echo "🔍 正在校验域名 DNS 解析状态..."
-  DOMAIN_IP=$(getent ahosts "$DOMAIN" | head -n 1 | awk '{print $1}')
-  if [ "$DOMAIN_IP" != "$IP" ]; then
-      echo "⚠️  警告：域名解析 IP ($DOMAIN_IP) 与本机 IP ($IP) 不一致！这会导致 TLS 证书申请失败。"
-      read -p "👉 是否确认 DNS 已生效并强行继续？(y/N): " FORCE
-      if [[ ! "$FORCE" =~ ^[Yy]$ ]]; then exit 1; fi
-  fi
+  # 强制提示 CF 支持的端口
+  echo "⚠️  注意：套用 Cloudflare CDN 必须使用特定的端口，否则会被 CF 直接拦截！"
+  echo "推荐端口: 443, 2053, 2083, 2087, 2096, 8443"
+  
+  read -p "👉 请输入 HTTPUpgrade 监听端口 (默认 443): " PORT_HU
+  [ -z "$PORT_HU" ] && PORT_HU=443
 
-  # 2. 端口交互输入
-  read -p "👉 请输入 VLESS + HTTPUpgrade 监听端口 (默认 4431): " PORT_HU
-  [ -z "$PORT_HU" ] && PORT_HU=4431
+  read -p "👉 请输入 xHTTP 监听端口 (默认 8443): " PORT_XH
+  [ -z "$PORT_XH" ] && PORT_XH=8443
 
-  read -p "👉 请输入 VLESS + xHTTP 监听端口 (默认 4432): " PORT_XH
-  [ -z "$PORT_XH" ] && PORT_XH=4432
-
-  # 安装基础环境依赖
-  echo "⚙️ 正在安装基础依赖和 Xray 官方核心..."
+  # 安装依赖与核心
   if command -v apt-get >/dev/null; then
       apt-get update -y && apt-get install -y curl socat cron jq uuid-runtime iptables
   elif command -v yum >/dev/null; then
       yum makecache && yum install -y curl socat cron jq uuid-runtime iptables
   fi
-  
-  # 调用官方脚本安装最新 Xray
   bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
-  # 放行防火墙 (80用于申请证书，后续端口用于代理)
+  # 防火墙放行
   if command -v ufw > /dev/null; then 
     ufw allow 80/tcp >/dev/null 2>&1
     ufw allow $PORT_HU/tcp >/dev/null 2>&1
@@ -81,8 +68,8 @@ install_node() {
   iptables -I INPUT -p tcp --dport $PORT_HU -j ACCEPT
   iptables -I INPUT -p tcp --dport $PORT_XH -j ACCEPT
 
-  # 3. 申请并安装 TLS 证书 (Standalone 模式)
-  echo "🔐 正在通过 Acme.sh 申请 Let's Encrypt 证书，请确保 80 端口未被其他程序(如 Nginx)占用..."
+  # 申请证书
+  echo "🔐 正在通过 Acme.sh 申请证书..."
   systemctl stop nginx 2>/dev/null
   systemctl stop apache2 2>/dev/null
   
@@ -98,17 +85,21 @@ install_node() {
     --ecc
 
   if [ ! -f /usr/local/etc/xray/server.crt ]; then
-      echo "❌ 证书申请失败，请检查域名解析是否正确，或 80 端口是否被占用。"
+      echo "❌ 致命错误：证书申请失败！"
+      echo "由于你开启了小黄云，CF 可能会拦截 80 端口的验证请求。请临时关闭小黄云（改为仅DNS），重新运行脚本安装，安装成功后再开启小黄云！"
       exit 1
   fi
+
+  # 修复点2：严格修复证书权限，防止 Xray (nobody用户) 无法读取导致崩溃
+  chmod 644 /usr/local/etc/xray/server.crt
+  chmod 644 /usr/local/etc/xray/server.key
   chown nobody:nogroup /usr/local/etc/xray/server.crt /usr/local/etc/xray/server.key 2>/dev/null || chown nobody:nobody /usr/local/etc/xray/server.crt /usr/local/etc/xray/server.key 2>/dev/null
 
-  # 4. 动态生成参数
   UUID=$(cat /proc/sys/kernel/random/uuid)
   PATH_HU="/httpupgrade"
   PATH_XH="/xhttp"
 
-  # 5. 写入双节点 Xray 配置文件
+  # 写入配置 (修复点1：加入了 ALPN 限制)
   cat <<EOF > /usr/local/etc/xray/config.json
 {
   "log": {
@@ -126,6 +117,7 @@ install_node() {
         "network": "httpupgrade",
         "security": "tls",
         "tlsSettings": {
+          "alpn": ["http/1.1"], 
           "certificates": [
             {
               "certificateFile": "/usr/local/etc/xray/server.crt",
@@ -154,6 +146,7 @@ install_node() {
         "network": "xhttp",
         "security": "tls",
         "tlsSettings": {
+          "alpn": ["h2", "http/1.1"],
           "certificates": [
             {
               "certificateFile": "/usr/local/etc/xray/server.crt",
@@ -185,13 +178,21 @@ EOF
   systemctl daemon-reload && systemctl enable xray && systemctl restart xray
   sleep 2
 
-  # 6. 打印输出链接
+  # 修复点3：增加服务端存活硬校验
+  if ! systemctl is-active --quiet xray; then
+      echo "=========================================="
+      echo "❌ 致命错误：Xray 核心启动失败！"
+      echo "服务端内部报错，可能是端口冲突或配置异常。最后 20 行报错日志如下："
+      journalctl -u xray -n 20 --no-pager
+      exit 1
+  fi
+
   echo "=========================================="
-  echo " 📋 配置完成！您的双协议节点已就绪："
+  echo " ✅ 配置成功运行！您的 CDN 专属节点已就绪："
   echo "=========================================="
   
   echo "👇 节点 1：VLESS + HTTPUpgrade + TLS (端口 $PORT_HU)"
-  echo "vless://$UUID@$DOMAIN:$PORT_HU?type=httpupgrade&security=tls&sni=$DOMAIN&path=$PATH_HU&host=$DOMAIN#VLESS-HTTPUpgrade"
+  echo "vless://$UUID@$DOMAIN:$PORT_HU?type=httpupgrade&security=tls&sni=$DOMAIN&path=$PATH_HU&host=$DOMAIN&alpn=http%2F1.1#VLESS-HTTPUpgrade"
   echo ""
   
   echo "👇 节点 2：VLESS + xHTTP + TLS (端口 $PORT_XH)"
@@ -199,11 +200,11 @@ EOF
   echo "=========================================="
 }
 
-# ================= 主菜单逻辑 =================
+# ================= 主菜单 =================
 echo "=========================================================="
-echo "    VLESS + HTTPUpgrade/xHTTP + TLS 官方纯净安装脚本"
+echo "    VLESS + HTTPUpgrade/xHTTP + TLS 修复版"
 echo "=========================================================="
-echo "  1. 安装双协议节点 (请提前做好域名解析)"
+echo "  1. 安装双协议节点"
 echo "  2. 卸载节点及清理证书"
 echo "  0. 退出"
 echo "=========================================================="
@@ -213,5 +214,5 @@ case $MENU_CHOICE in
   1) install_node ;;
   2) uninstall_node ;;
   0) exit 0 ;;
-  *) echo "❌ 输入错误，已退出。"; exit 1 ;;
+  *) exit 1 ;;
 esac
