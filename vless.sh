@@ -9,7 +9,7 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # 1. 检查 root 权限
 if [ "$EUID" -ne 0 ]; then
@@ -17,18 +17,23 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 2. 交互式配置参数
 echo -e "${GREEN}=== Sing-box VLESS-Reality 配置 ===${NC}"
 
-# 获取伪装域名，增加 < /dev/tty 强制从终端读取，解决 curl 管道流冲突
-read -p "请输入伪装域名 (默认 www.apple.com，直接回车使用默认值): " INPUT_DEST < /dev/tty
-DEST=${INPUT_DEST:-www.apple.com}
+# 2. 支持直接跟参数执行，例如：bash vless.sh bing.com 443
+if [ -n "$1" ]; then
+    DEST="$1"
+    PORT="${2:-443}"
+    echo -e "${YELLOW}检测到命令行参数 -> 端口: $PORT | 伪装域名: $DEST${NC}"
+else
+    # 交互式输入
+    read -p "请输入伪装域名 (默认 www.apple.com，直接回车使用默认值): " INPUT_DEST
+    DEST=${INPUT_DEST:-www.apple.com}
 
-# 获取监听端口，同样增加 < /dev/tty
-read -p "请输入节点端口 (默认 443，直接回车使用默认值): " INPUT_PORT < /dev/tty
-PORT=${INPUT_PORT:-443}
+    read -p "请输入节点端口 (默认 443，直接回车使用默认值): " INPUT_PORT
+    PORT=${INPUT_PORT:-443}
+    echo -e "${YELLOW}配置确认 -> 端口: $PORT | 伪装域名: $DEST${NC}"
+fi
 
-echo -e "${YELLOW}配置确认 -> 端口: $PORT | 伪装域名: $DEST${NC}"
 echo -e "${GREEN}=====================================${NC}"
 sleep 2
 
@@ -100,7 +105,6 @@ systemctl restart sing-box
 
 # 7. 检查状态并输出链接
 if systemctl is-active --quiet sing-box; then
-    # 对节点名称进行简单的 URL 编码 (处理空格)
     REMARK="SingBox_${SERVER_IP}"
     
     # 拼接标准的 VLESS 分享链接
@@ -120,5 +124,5 @@ if systemctl is-active --quiet sing-box; then
     echo ""
     echo -e "${GREEN}==================================================${NC}"
 else
-    echo -e "${RED}❌ 启动失败，请使用命令 'journalctl -u sing-box --no-pager -e' 检查报错日志，或者检查端口是否被占用。${NC}"
+    echo -e "${RED}❌ 启动失败，请检查端口是否被占用。${NC}"
 fi
