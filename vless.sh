@@ -1,10 +1,6 @@
 #!/bin/bash
 
-# ==========================================
-# Sing-box VLESS-Reality 纯净交互式一键部署脚本
-# ==========================================
-
-# 强行夺回标准输入控制权，解决 curl 执行时无法交互的问题！
+# 强行夺回标准输入控制权
 exec < /dev/tty
 
 RED='\033[0;31m'
@@ -17,51 +13,60 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-echo -e "${GREEN}=====================================${NC}"
-echo -e "${GREEN}=== Sing-box VLESS-Reality 交互配置 ===${NC}"
-echo -e "${GREEN}=====================================${NC}"
+# ==========================================
+# 卸载功能
+# ==========================================
+uninstall_node() {
+    echo -e "${YELLOW}正在停止 Sing-box 服务...${NC}"
+    systemctl stop sing-box 2>/dev/null
+    systemctl disable sing-box 2>/dev/null
+    
+    echo -e "${YELLOW}正在卸载核心程序并清理配置文件...${NC}"
+    apt-get remove --purge sing-box -y 2>/dev/null || dpkg -P sing-box 2>/dev/null
+    rm -rf /etc/sing-box
+    
+    echo -e "${GREEN}✅ 卸载完成！系统已清理干净。${NC}"
+    exit 0
+}
 
-# 获取服务器公网 IP
-SERVER_IP=$(curl -s4 https://api.ipify.org)
+# ==========================================
+# 安装功能
+# ==========================================
+install_node() {
+    SERVER_IP=$(curl -s4 https://api.ipify.org)
 
-# 1. 交互询问：域名
-echo ""
-echo -e "${YELLOW}第一步：请输入你的域名 (例如: node.yourdomain.com)${NC}"
-read -p "如果还没有域名，直接按回车将使用本机IP ($SERVER_IP): " INPUT_DOMAIN
-CUSTOM_DOMAIN=${INPUT_DOMAIN:-$SERVER_IP}
+    echo ""
+    echo -e "${YELLOW}第一步：请输入你的域名 (例如: node.yourdomain.com)${NC}"
+    read -p "如果还没有域名，直接按回车将使用本机IP ($SERVER_IP): " INPUT_DOMAIN
+    CUSTOM_DOMAIN=${INPUT_DOMAIN:-$SERVER_IP}
 
-# 2. 交互询问：端口
-echo ""
-echo -e "${YELLOW}第二步：请输入节点监听端口${NC}"
-read -p "建议使用自定义端口，直接按回车将默认使用 443: " INPUT_PORT
-PORT=${INPUT_PORT:-443}
+    echo ""
+    echo -e "${YELLOW}第二步：请输入节点监听端口${NC}"
+    read -p "建议使用自定义端口，直接按回车将默认使用 443: " INPUT_PORT
+    PORT=${INPUT_PORT:-443}
 
-# 3. 后台随机选取高质量大厂伪装域名 (SNI)
-DOMAINS=("www.apple.com" "www.microsoft.com" "www.amazon.com" "dl.google.com")
-DEST=${DOMAINS[$RANDOM % ${#DOMAINS[@]}]}
+    DOMAINS=("www.apple.com" "www.microsoft.com" "www.amazon.com" "dl.google.com")
+    DEST=${DOMAINS[$RANDOM % ${#DOMAINS[@]}]}
 
-echo ""
-echo -e "${GREEN}=====================================${NC}"
-echo -e "你的连接地址将是 : ${YELLOW}$CUSTOM_DOMAIN${NC}"
-echo -e "你的节点端口将是 : ${YELLOW}$PORT${NC}"
-echo -e "后台自动伪装域名 : ${YELLOW}$DEST${NC}"
-echo -e "${GREEN}=====================================${NC}"
-echo -e "${YELLOW}开始部署，请稍候...${NC}"
-echo ""
-sleep 2
+    echo ""
+    echo -e "${GREEN}=====================================${NC}"
+    echo -e "你的连接地址将是 : ${YELLOW}$CUSTOM_DOMAIN${NC}"
+    echo -e "你的节点端口将是 : ${YELLOW}$PORT${NC}"
+    echo -e "后台自动伪装域名 : ${YELLOW}$DEST${NC}"
+    echo -e "${GREEN}=====================================${NC}"
+    echo -e "${YELLOW}开始部署，请稍候...${NC}"
+    echo ""
+    sleep 2
 
-# 安装官方内核
-bash <(curl -fsSL https://sing-box.app/deb-install.sh) >/dev/null 2>&1
+    bash <(curl -fsSL https://sing-box.app/deb-install.sh) >/dev/null 2>&1
 
-# 生成密钥
-UUID=$(sing-box generate uuid)
-KEYS=$(sing-box generate reality-keypair)
-PRIVATE_KEY=$(echo "$KEYS" | awk '/PrivateKey/ {print $2}')
-PUBLIC_KEY=$(echo "$KEYS" | awk '/PublicKey/ {print $2}')
-SHORT_ID=$(sing-box generate rand --hex 8)
+    UUID=$(sing-box generate uuid)
+    KEYS=$(sing-box generate reality-keypair)
+    PRIVATE_KEY=$(echo "$KEYS" | awk '/PrivateKey/ {print $2}')
+    PUBLIC_KEY=$(echo "$KEYS" | awk '/PublicKey/ {print $2}')
+    SHORT_ID=$(sing-box generate rand --hex 8)
 
-# 写入配置 (注意：inbounds 里的 listen_port 是你的自定义端口，但 reality 里的 server_port 必须是苹果/微软官方的 443，绝不能改)
-cat > /etc/sing-box/config.json <<EOF
+    cat > /etc/sing-box/config.json <<EOF
 {
   "inbounds": [
     {
@@ -101,28 +106,65 @@ cat > /etc/sing-box/config.json <<EOF
 }
 EOF
 
-# 重启服务
-systemctl daemon-reload
-systemctl enable --now sing-box
-systemctl restart sing-box
+    systemctl daemon-reload
+    systemctl enable --now sing-box
+    systemctl restart sing-box
 
-# 输出结果
-if systemctl is-active --quiet sing-box; then
-    REMARK="SingBox_${CUSTOM_DOMAIN}"
-    SHARE_LINK="vless://${UUID}@${CUSTOM_DOMAIN}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#${REMARK}"
+    if systemctl is-active --quiet sing-box; then
+        REMARK="SingBox_${CUSTOM_DOMAIN}"
+        SHARE_LINK="vless://${UUID}@${CUSTOM_DOMAIN}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#${REMARK}"
 
-    echo ""
-    echo -e "${GREEN}✅ 部署成功！${NC}"
-    echo -e "${YELLOW}👇 请复制以下链接导入客户端 👇${NC}"
-    echo ""
-    echo -e "${GREEN}${SHARE_LINK}${NC}"
-    echo ""
-    
-    # 提醒云服务器防火墙
-    if [ "$PORT" != "443" ]; then
-        echo -e "${RED}⚠️ 重要提醒：你使用了自定义端口 ${PORT}！${NC}"
-        echo -e "${YELLOW}请务必去云服务商（如 GCP/AWS）的网页控制台 -> 防火墙/安全组，放行 TCP ${PORT} 端口，否则节点绝对连不上！${NC}"
+        echo ""
+        echo -e "${GREEN}✅ 部署成功！${NC}"
+        echo -e "${YELLOW}👇 请复制以下链接导入客户端 👇${NC}"
+        echo ""
+        echo -e "${GREEN}${SHARE_LINK}${NC}"
+        echo ""
+        
+        if [ "$PORT" != "443" ]; then
+            echo -e "${RED}⚠️ 重要提醒：你使用了自定义端口 ${PORT}！${NC}"
+            echo -e "${YELLOW}请务必去云服务商的防火墙/安全组，放行 TCP ${PORT} 端口！${NC}"
+        fi
+    else
+        echo -e "${RED}❌ 启动失败，请检查端口是否冲突。${NC}"
     fi
-else
-    echo -e "${RED}❌ 启动失败，请检查你的端口 ${PORT} 是否被占用。${NC}"
-fi
+    exit 0
+}
+
+# ==========================================
+# 主菜单逻辑
+# ==========================================
+clear
+echo -e "${GREEN}=====================================${NC}"
+echo -e "${GREEN}=== Sing-box VLESS-Reality 管理脚本 ===${NC}"
+echo -e "${GREEN}=====================================${NC}"
+echo -e " 1. 部署/覆盖安装 VLESS-Reality 节点"
+echo -e " 2. ${RED}彻底卸载节点及清理配置${NC}"
+echo -e " 0. 退出脚本"
+echo -e "${GREEN}=====================================${NC}"
+echo ""
+
+read -p "请输入数字选择操作 [0-2]: " ACTION_CHOICE
+
+case $ACTION_CHOICE in
+    1)
+        install_node
+        ;;
+    2)
+        read -p "确定要彻底卸载 Sing-box 吗？[y/N]: " UNINSTALL_CONFIRM
+        if [[ "$UNINSTALL_CONFIRM" =~ ^[Yy]$ ]]; then
+            uninstall_node
+        else
+            echo "已取消卸载。"
+            exit 0
+        fi
+        ;;
+    0)
+        echo "已退出。"
+        exit 0
+        ;;
+    *)
+        echo -e "${RED}无效输入，请重新运行脚本并选择 0-2 之间的数字。${NC}"
+        exit 1
+        ;;
+esac
