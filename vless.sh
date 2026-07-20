@@ -5,7 +5,6 @@
 # 适用系统：Debian / Ubuntu
 # ==========================================
 
-# 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -19,29 +18,32 @@ fi
 
 echo -e "${GREEN}=== Sing-box VLESS-Reality 配置 ===${NC}"
 
-# 2. 支持直接跟参数执行，例如：bash vless.sh bing.com 443
-if [ -n "$1" ]; then
-    DEST="$1"
-    PORT="${2:-443}"
-    echo -e "${YELLOW}检测到命令行参数 -> 端口: $PORT | 伪装域名: $DEST${NC}"
-else
-    # 交互式输入
-    read -p "请输入伪装域名 (默认 www.apple.com，直接回车使用默认值): " INPUT_DEST
-    DEST=${INPUT_DEST:-www.apple.com}
+# 2. 获取监听端口
+read -p "请输入节点监听端口 (默认 443，建议使用高位端口避免封锁，直接回车使用默认值): " INPUT_PORT
+PORT=${INPUT_PORT:-443}
 
-    read -p "请输入节点端口 (默认 443，直接回车使用默认值): " INPUT_PORT
-    PORT=${INPUT_PORT:-443}
-    echo -e "${YELLOW}配置确认 -> 端口: $PORT | 伪装域名: $DEST${NC}"
-fi
+# 3. 后台随机选取高质量大厂伪装域名
+DOMAINS=(
+    "www.apple.com"
+    "www.microsoft.com"
+    "www.amazon.com"
+    "aws.amazon.com"
+    "www.cloudflare.com"
+    "dl.google.com"
+    "www.bing.com"
+)
+# 随机获取数组中的一个元素
+DEST=${DOMAINS[$RANDOM % ${#DOMAINS[@]}]}
 
+echo -e "${YELLOW}配置确认 -> 监听端口: $PORT | 随机抽取的伪装域名: $DEST${NC}"
 echo -e "${GREEN}=====================================${NC}"
 sleep 2
 
-# 3. 安装官方环境
+# 4. 安装官方环境
 echo -e "${YELLOW}正在清理旧版本并安装最新版 Sing-box 核心...${NC}"
 bash <(curl -fsSL https://sing-box.app/deb-install.sh) >/dev/null 2>&1
 
-# 4. 生成密钥与参数
+# 5. 生成密钥与参数
 echo -e "${YELLOW}正在本地生成强加密密钥...${NC}"
 UUID=$(sing-box generate uuid)
 KEYS=$(sing-box generate reality-keypair)
@@ -55,7 +57,7 @@ if [ -z "$SERVER_IP" ]; then
     SERVER_IP=$(curl -s6 https://api64.ipify.org)
 fi
 
-# 5. 生成配置文件
+# 6. 生成配置文件
 echo -e "${YELLOW}正在重写配置文件...${NC}"
 cat > /etc/sing-box/config.json <<EOF
 {
@@ -97,13 +99,13 @@ cat > /etc/sing-box/config.json <<EOF
 }
 EOF
 
-# 6. 重启服务
+# 7. 重启服务
 echo -e "${YELLOW}正在启动服务并设置开机自启...${NC}"
 systemctl daemon-reload
 systemctl enable --now sing-box
 systemctl restart sing-box
 
-# 7. 检查状态并输出链接
+# 8. 检查状态并输出链接
 if systemctl is-active --quiet sing-box; then
     REMARK="SingBox_${SERVER_IP}"
     
@@ -124,5 +126,5 @@ if systemctl is-active --quiet sing-box; then
     echo ""
     echo -e "${GREEN}==================================================${NC}"
 else
-    echo -e "${RED}❌ 启动失败，请检查端口是否被占用。${NC}"
+    echo -e "${RED}❌ 启动失败，请检查端口是否被占用，以及服务日志。${NC}"
 fi
