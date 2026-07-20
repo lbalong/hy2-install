@@ -36,7 +36,7 @@ uninstall_node() {
 # ================= 安装功能 =================
 install_node() {
   echo "=========================================="
-  echo "  VLESS CDN 节点部署 (状态持久化修复版)"
+  echo "  VLESS CDN 部署 (LE+ZeroSSL 双通道容错版)"
   echo "=========================================="
   
   # 读取历史配置
@@ -57,7 +57,7 @@ install_node() {
       read -p "👉 请输入域名 (直接回车使用上次的 $LAST_DOMAIN): " DOMAIN
       [ -z "$DOMAIN" ] && DOMAIN=$LAST_DOMAIN
   else
-      read -p "👉 请输入已解析的域名 (需在 CF 中点亮小黄云): " DOMAIN
+      read -p "👉 请输入已解析的域名: " DOMAIN
       [ -z "$DOMAIN" ] && { echo "❌ 错误：域名不能为空！"; exit 1; }
   fi
 
@@ -87,7 +87,7 @@ install_node() {
       exit 1
   fi
 
-  # 🌟 修复核心：UUID 状态持久化
+  # UUID 状态持久化
   if [ -n "$LAST_UUID" ]; then
       UUID=$LAST_UUID
       echo "✅ 检测到历史 UUID，直接复用以防止旧节点断联..."
@@ -95,12 +95,6 @@ install_node() {
       UUID=$(cat /proc/sys/kernel/random/uuid)
       echo "✅ 生成全新 UUID 并固化保存..."
   fi
-
-  # 写入配置记忆
-  echo "LAST_DOMAIN=\"$DOMAIN\"" > "$CONFIG_FILE"
-  echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
-  [[ -n "$PORT_XH" ]] && echo "LAST_PORT_XH=\"$PORT_XH\"" >> "$CONFIG_FILE"
-  [[ -n "$PORT_HU" ]] && echo "LAST_PORT_HU=\"$PORT_HU\"" >> "$CONFIG_FILE"
 
   # 安装依赖与核心
   echo "⚙️ 正在安装依赖和核心..."
@@ -121,6 +115,18 @@ install_node() {
   [[ -n "$PORT_XH" ]] && iptables -I INPUT -p tcp --dport $PORT_XH -j ACCEPT
   [[ -n "$PORT_HU" ]] && iptables -I INPUT -p tcp --dport $PORT_HU -j ACCEPT
 
+  # 🌟 域名变更智能检测
+  if [ -n "$LAST_DOMAIN" ] && [ "$DOMAIN" != "$LAST_DOMAIN" ]; then
+      echo "🔄 检测到域名由 $LAST_DOMAIN 变更为 $DOMAIN，正在自动清理旧证书..."
+      rm -f /usr/local/etc/xray/server.crt /usr/local/etc/xray/server.key
+  fi
+
+  # 写入配置记忆 (放在检测域名变更之后，避免逻辑冲突)
+  echo "LAST_DOMAIN=\"$DOMAIN\"" > "$CONFIG_FILE"
+  echo "LAST_UUID=\"$UUID\"" >> "$CONFIG_FILE"
+  [[ -n "$PORT_XH" ]] && echo "LAST_PORT_XH=\"$PORT_XH\"" >> "$CONFIG_FILE"
+  [[ -n "$PORT_HU" ]] && echo "LAST_PORT_HU=\"$PORT_HU\"" >> "$CONFIG_FILE"
+
   # 申请证书
   echo "🔐 正在检查/申请域名证书..."
   mkdir -p /usr/local/etc/xray
@@ -130,8 +136,18 @@ install_node() {
       systemctl stop apache2 2>/dev/null
       curl -sL https://get.acme.sh | sh
       ~/.acme.sh/acme.sh --upgrade --auto-upgrade
+
+      echo "🌐 优先尝试使用 Let's Encrypt 申请证书..."
       ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-      ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone -k ec-256
+      if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone -k ec-256; then
+          echo "⚠️ Let's Encrypt 申请失败（可能触发限流），正在自动回退到 ZeroSSL..."
+          ~/.acme.sh/acme.sh --register-account -m "admin@$DOMAIN" --server zerossl
+          if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone -k ec-256 --server zerossl; then
+              echo "❌ 致命错误：ZeroSSL 备用申请也失败了！"
+              echo "请检查：1. 域名解析是否准确 2. 是否开启了 CDN (需临时关闭变灰云) 3. 80 端口是否被占用"
+              exit 1
+          fi
+      fi
       
       ~/.acme.sh/acme.sh --installcert -d "$DOMAIN" \
         --fullchainpath /usr/local/etc/xray/server.crt \
@@ -139,9 +155,11 @@ install_node() {
         --ecc
 
       if [ ! -f /usr/local/etc/xray/server.crt ]; then
-          echo "❌ 证书申请失败！请临时关闭小黄云后重试。"
+          echo "❌ 证书安装失败！"
           exit 1
       fi
+  else
+      echo "✅ 检测到已有可用证书，直接复用。"
   fi
 
   chmod 644 /usr/local/etc/xray/server.crt
@@ -205,12 +223,13 @@ EOF
   sleep 2
 
   if ! systemctl is-active --quiet xray; then
-      echo "❌ Xray 启动失败！"
+      echo "❌ Xray 启动失败！日志如下："
+      journalctl -u xray -n 10 --no-pager
       exit 1
   fi
 
   echo "=========================================="
-  echo " ✅ 节点部署成功！(UUID 已固化防断联)"
+  echo " ✅ 节点部署成功！"
   echo "=========================================="
   
   if [[ "$BUILD_MODE" == "1" || "$BUILD_MODE" == "3" ]]; then
@@ -229,7 +248,7 @@ EOF
 
 # ================= 主菜单 =================
 echo "=========================================="
-echo "  VLESS 模块化管理 (修复 UUID 刷新 Bug)"
+echo "  VLESS 模块化管理 (包含 ZeroSSL 容错通道)"
 echo "=========================================="
 echo "  1. 安装/追加节点"
 echo "  2. 彻底卸载清理"
