@@ -20,12 +20,12 @@ fi
 # 2. 交互式配置参数
 echo -e "${GREEN}=== Sing-box VLESS-Reality 配置 ===${NC}"
 
-# 获取伪装域名
-read -p "请输入伪装域名 (默认 www.apple.com，直接回车使用默认值): " INPUT_DEST
+# 获取伪装域名，增加 < /dev/tty 强制从终端读取，解决 curl 管道流冲突
+read -p "请输入伪装域名 (默认 www.apple.com，直接回车使用默认值): " INPUT_DEST < /dev/tty
 DEST=${INPUT_DEST:-www.apple.com}
 
-# 获取监听端口
-read -p "请输入节点端口 (默认 443，直接回车使用默认值): " INPUT_PORT
+# 获取监听端口，同样增加 < /dev/tty
+read -p "请输入节点端口 (默认 443，直接回车使用默认值): " INPUT_PORT < /dev/tty
 PORT=${INPUT_PORT:-443}
 
 echo -e "${YELLOW}配置确认 -> 端口: $PORT | 伪装域名: $DEST${NC}"
