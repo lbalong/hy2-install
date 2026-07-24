@@ -110,7 +110,7 @@ check_and_install_env() {
     fi
     bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
-    # 证书申请 (LE + ZeroSSL 容错)
+    # 证书申请 (LE + ZeroSSL 容错 + 智能复用与清理)
     mkdir -p /usr/local/etc/xray
     if [ ! -f /usr/local/etc/xray/server.crt ]; then
         systemctl stop nginx 2>/dev/null
@@ -121,14 +121,29 @@ check_and_install_env() {
         ~/.acme.sh/acme.sh --upgrade --auto-upgrade
         ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
         
-        if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone -k ec-256; then
-            echo "⚠️ Let's Encrypt 失败，自动切换 ZeroSSL..."
-            ~/.acme.sh/acme.sh --register-account -m "admin@$DOMAIN" --server zerossl
-            if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone -k ec-256 --server zerossl; then
-                echo "❌ 证书申请全线失败！请检查域名解析和 CDN 状态。"
-                exit 1
+        # --- 修复版：证书检测与清理逻辑 ---
+        CERT_READY=0
+        if [ -f "$HOME/.acme.sh/${DOMAIN}_ecc/fullchain.cer" ]; then
+            echo "✅ 检测到本地已存在 ${DOMAIN} 的有效证书，跳过申请，直接复用！"
+            CERT_READY=1
+        fi
+
+        if [ "$CERT_READY" == "0" ]; then
+            echo "⏳ 开始申请新证书..."
+            # 申请前强制清理残留记录，防止 acme.sh 误判跳过
+            rm -rf ~/.acme.sh/${DOMAIN}* 2>/dev/null
+            
+            if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone -k ec-256; then
+                echo "⚠️ Let's Encrypt 失败，自动切换 ZeroSSL..."
+                ~/.acme.sh/acme.sh --register-account -m "admin@$DOMAIN" --server zerossl
+                if ! ~/.acme.sh/acme.sh --issue -d "$DOMAIN" --standalone -k ec-256 --server zerossl; then
+                    echo "❌ 证书申请全线失败！请检查域名解析和 CDN 状态。"
+                    exit 1
+                fi
             fi
         fi
+        # -----------------------------------
+        
         ~/.acme.sh/acme.sh --installcert -d "$DOMAIN" --fullchainpath /usr/local/etc/xray/server.crt --keypath /usr/local/etc/xray/server.key --ecc
     fi
     chown nobody:nogroup /usr/local/etc/xray/server.crt /usr/local/etc/xray/server.key 2>/dev/null || chown nobody:nobody /usr/local/etc/xray/server.crt /usr/local/etc/xray/server.key 2>/dev/null
