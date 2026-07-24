@@ -13,6 +13,26 @@ if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
 fi
 
+# ================= 端口冲突检测 (新加入的防呆逻辑) =================
+check_port_conflict() {
+    local check_port=$1
+    # 探测是否有进程在占用该端口
+    local occupier=$(fuser ${check_port}/tcp 2>/dev/null)
+    
+    if [ -n "$occupier" ]; then
+        echo -e "\n⚠️ [警报] 检测到端口 ${check_port} 正被占用 (PID: $occupier)！"
+        read -p "👉 是否强制结束该进程释放端口？(Y/n) [默认敲回车执行强杀]: " force_kill
+        force_kill=${force_kill:-Y}
+        
+        if [[ "$force_kill" =~ ^[Yy]$ ]]; then
+            fuser -k ${check_port}/tcp >/dev/null 2>&1
+            echo "✅ 已强杀占用进程，端口 ${check_port} 释放完毕！"
+        else
+            echo "⚠️ 放弃清理，后续 Xray 启动极大概率会报错崩溃。"
+        fi
+    fi
+}
+
 # ================= 核心：动态生成配置文件 =================
 rebuild_xray_config() {
     local INBOUNDS_JSON=""
@@ -102,11 +122,11 @@ EOF
 
 # ================= 依赖与证书检查 =================
 check_and_install_env() {
-    # 基础依赖
+    # 基础依赖 (加入了 psmisc 确保 fuser 命令可用)
     if command -v apt-get >/dev/null; then
-        apt-get update -y && apt-get install -y curl socat cron jq uuid-runtime iptables
+        apt-get update -y && apt-get install -y curl socat cron jq uuid-runtime iptables psmisc
     elif command -v yum >/dev/null; then
-        yum makecache && yum install -y curl socat cron jq uuid-runtime iptables
+        yum makecache && yum install -y curl socat cron jq uuid-runtime iptables psmisc
     fi
     bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
@@ -121,7 +141,6 @@ check_and_install_env() {
         ~/.acme.sh/acme.sh --upgrade --auto-upgrade
         ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
         
-        # --- 修复版：证书检测与清理逻辑 ---
         CERT_READY=0
         if [ -f "$HOME/.acme.sh/${DOMAIN}_ecc/fullchain.cer" ]; then
             echo "✅ 检测到本地已存在 ${DOMAIN} 的有效证书，跳过申请，直接复用！"
@@ -142,7 +161,6 @@ check_and_install_env() {
                 fi
             fi
         fi
-        # -----------------------------------
         
         ~/.acme.sh/acme.sh --installcert -d "$DOMAIN" --fullchainpath /usr/local/etc/xray/server.crt --keypath /usr/local/etc/xray/server.key --ecc
     fi
@@ -199,17 +217,23 @@ install_menu() {
 
     if [[ "$ADD_CHOICE" == "1" || "$ADD_CHOICE" == "4" ]]; then
         read -p "👉 请输入 xHTTP 端口 (默认 2083): " IN_PORT
-        PORT_XH=${IN_PORT:-2083}; NODE_XH_EN=1
+        PORT_XH=${IN_PORT:-2083}
+        check_port_conflict $PORT_XH
+        NODE_XH_EN=1
         iptables -I INPUT -p tcp --dport $PORT_XH -j ACCEPT
     fi
     if [[ "$ADD_CHOICE" == "2" || "$ADD_CHOICE" == "4" ]]; then
         read -p "👉 请输入 HTTPUpgrade 端口 (默认 2087): " IN_PORT
-        PORT_HU=${IN_PORT:-2087}; NODE_HU_EN=1
+        PORT_HU=${IN_PORT:-2087}
+        check_port_conflict $PORT_HU
+        NODE_HU_EN=1
         iptables -I INPUT -p tcp --dport $PORT_HU -j ACCEPT
     fi
     if [[ "$ADD_CHOICE" == "3" || "$ADD_CHOICE" == "4" ]]; then
         read -p "👉 请输入 WS 端口 (默认 2096): " IN_PORT
-        PORT_WS=${IN_PORT:-2096}; NODE_WS_EN=1
+        PORT_WS=${IN_PORT:-2096}
+        check_port_conflict $PORT_WS
+        NODE_WS_EN=1
         iptables -I INPUT -p tcp --dport $PORT_WS -j ACCEPT
     fi
 
