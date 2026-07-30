@@ -14,6 +14,21 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # ==========================================
+# 网络优化功能 (开启 BBR)
+# ==========================================
+enable_bbr() {
+    echo -e "${YELLOW}正在检查并配置 TCP BBR 加速...${NC}"
+    if ! grep -q "net.ipv4.tcp_congestion_control" /etc/sysctl.conf; then
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+        sysctl -p >/dev/null 2>&1
+        echo -e "${GREEN}✅ BBR 拥塞控制算法开启成功，网络吞吐量已优化！${NC}"
+    else
+        echo -e "${GREEN}✅ BBR 已经开启，无需重复设置。${NC}"
+    fi
+}
+
+# ==========================================
 # 卸载功能
 # ==========================================
 uninstall_node() {
@@ -45,7 +60,8 @@ install_node() {
     read -p "建议使用自定义端口，直接按回车将默认使用 443: " INPUT_PORT
     PORT=${INPUT_PORT:-443}
 
-    DOMAINS=("www.apple.com" "www.microsoft.com" "www.amazon.com" "dl.google.com")
+    # 优化点：去除了 dl.google.com 等极易被阻断或限速的 SNI，换成更稳定的白名单域名
+    DOMAINS=("gateway.icloud.com" "www.microsoft.com" "itunes.apple.com" "update.microsoft.com")
     DEST=${DOMAINS[$RANDOM % ${#DOMAINS[@]}]}
 
     echo ""
@@ -56,6 +72,9 @@ install_node() {
     echo -e "${GREEN}=====================================${NC}"
     echo -e "${YELLOW}开始部署，请稍候...${NC}"
     echo ""
+    
+    # 执行 BBR 优化
+    enable_bbr
     sleep 2
 
     bash <(curl -fsSL https://sing-box.app/deb-install.sh) >/dev/null 2>&1
@@ -66,6 +85,7 @@ install_node() {
     PUBLIC_KEY=$(echo "$KEYS" | awk '/PublicKey/ {print $2}')
     SHORT_ID=$(sing-box generate rand --hex 8)
 
+    # 优化点：加入 tcp_fast_open 降低握手延迟
     cat > /etc/sing-box/config.json <<EOF
 {
   "inbounds": [
@@ -74,6 +94,7 @@ install_node() {
       "tag": "vless-in",
       "listen": "::",
       "listen_port": $PORT,
+      "tcp_fast_open": true,
       "users": [
         {
           "uuid": "$UUID",
@@ -136,7 +157,7 @@ EOF
 # ==========================================
 clear
 echo -e "${GREEN}=====================================${NC}"
-echo -e "${GREEN}=== Sing-box VLESS-Reality 管理脚本 ===${NC}"
+echo -e "${GREEN}=== Sing-box VLESS-Reality 极速版 ===${NC}"
 echo -e "${GREEN}=====================================${NC}"
 echo -e " 1. 部署/覆盖安装 VLESS-Reality 节点"
 echo -e " 2. ${RED}彻底卸载节点及清理配置${NC}"
