@@ -14,21 +14,6 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # ==========================================
-# 网络优化功能 (开启 BBR)
-# ==========================================
-enable_bbr() {
-    echo -e "${YELLOW}正在检查并配置 TCP BBR 加速...${NC}"
-    if ! grep -q "net.ipv4.tcp_congestion_control" /etc/sysctl.conf; then
-        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-        sysctl -p >/dev/null 2>&1
-        echo -e "${GREEN}✅ BBR 拥塞控制算法开启成功，网络吞吐量已优化！${NC}"
-    else
-        echo -e "${GREEN}✅ BBR 已经开启，无需重复设置。${NC}"
-    fi
-}
-
-# ==========================================
 # 卸载功能
 # ==========================================
 uninstall_node() {
@@ -60,8 +45,40 @@ install_node() {
     read -p "建议使用自定义端口，直接按回车将默认使用 443: " INPUT_PORT
     PORT=${INPUT_PORT:-443}
 
-    # 优化点：去除了 dl.google.com 等极易被阻断或限速的 SNI，换成更稳定的白名单域名
-    DOMAINS=("gateway.icloud.com" "www.microsoft.com" "itunes.apple.com" "update.microsoft.com")
+    # ==========================================
+    # 自动检测并清空被占用的端口
+    # ==========================================
+    if ! command -v lsof &> /dev/null; then
+        apt-get update -y >/dev/null 2>&1
+        apt-get install -y lsof >/dev/null 2>&1
+    fi
+    PORT_PID=$(lsof -i :$PORT -t)
+    if [ -n "$PORT_PID" ]; then
+        echo -e "${YELLOW}检测到端口 $PORT 已被占用，正在自动清空相关进程...${NC}"
+        kill -9 $PORT_PID >/dev/null 2>&1
+        sleep 1
+    fi
+
+    # ==========================================
+    # 域名解析及 CDN 代理冲突检测
+    # ==========================================
+    if [ "$CUSTOM_DOMAIN" != "$SERVER_IP" ]; then
+        if command -v getent &> /dev/null; then
+            RESOLVED_IP=$(getent ahosts "$CUSTOM_DOMAIN" | awk '{ print $1 }' | head -n 1)
+            if [ -n "$RESOLVED_IP" ] && [ "$RESOLVED_IP" != "$SERVER_IP" ]; then
+                echo -e ""
+                echo -e "${RED}======================================================${NC}"
+                echo -e "${RED}严重警告：你的域名解析 IP ($RESOLVED_IP) 与本机 IP ($SERVER_IP) 不一致！${NC}"
+                echo -e "${YELLOW}注意：如果你在域名托管商处开启了 Cloudflare 的代理（小黄云），节点绝对无法连通！${NC}"
+                echo -e "${YELLOW}VLESS-Reality 协议必须直连。如果存在此问题，请立即前往后台关闭代理。${NC}"
+                echo -e "${RED}======================================================${NC}"
+                sleep 5
+            fi
+        fi
+    fi
+
+    # 剔除可能被墙阻断的伪装域名，替换为最稳的白名单
+    DOMAINS=("www.microsoft.com" "www.apple.com" "www.amazon.com")
     DEST=${DOMAINS[$RANDOM % ${#DOMAINS[@]}]}
 
     echo ""
@@ -70,12 +87,15 @@ install_node() {
     echo -e "你的节点端口将是 : ${YELLOW}$PORT${NC}"
     echo -e "后台自动伪装域名 : ${YELLOW}$DEST${NC}"
     echo -e "${GREEN}=====================================${NC}"
-    echo -e "${YELLOW}开始部署，请稍候...${NC}"
+    echo -e "${YELLOW}开始部署核心组件，请稍候...${NC}"
     echo ""
     
-    # 执行 BBR 优化
-    enable_bbr
-    sleep 2
+    # 开启 BBR (安全提速项保留，抛弃危险项)
+    if ! grep -q "net.ipv4.tcp_congestion_control" /etc/sysctl.conf; then
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+        sysctl -p >/dev/null 2>&1
+    fi
 
     bash <(curl -fsSL https://sing-box.app/deb-install.sh) >/dev/null 2>&1
 
@@ -85,7 +105,7 @@ install_node() {
     PUBLIC_KEY=$(echo "$KEYS" | awk '/PublicKey/ {print $2}')
     SHORT_ID=$(sing-box generate rand --hex 8)
 
-    # 优化点：加入 tcp_fast_open 降低握手延迟
+    # 还原纯净的配置文件，剔除导致无法启动的 tcp_fast_open
     cat > /etc/sing-box/config.json <<EOF
 {
   "inbounds": [
@@ -94,7 +114,6 @@ install_node() {
       "tag": "vless-in",
       "listen": "::",
       "listen_port": $PORT,
-      "tcp_fast_open": true,
       "users": [
         {
           "uuid": "$UUID",
@@ -136,7 +155,7 @@ EOF
         SHARE_LINK="vless://${UUID}@${CUSTOM_DOMAIN}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${DEST}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&type=tcp&headerType=none#${REMARK}"
 
         echo ""
-        echo -e "${GREEN}✅ 部署成功！${NC}"
+        echo -e "${GREEN}✅ 部署成功，服务已正常启动！${NC}"
         echo -e "${YELLOW}👇 请复制以下链接导入客户端 👇${NC}"
         echo ""
         echo -e "${GREEN}${SHARE_LINK}${NC}"
@@ -144,10 +163,10 @@ EOF
         
         if [ "$PORT" != "443" ]; then
             echo -e "${RED}⚠️ 重要提醒：你使用了自定义端口 ${PORT}！${NC}"
-            echo -e "${YELLOW}请务必去云服务商的防火墙/安全组，放行 TCP ${PORT} 端口！${NC}"
+            echo -e "${YELLOW}请务必前往云服务器控制台防火墙/安全组，放行 TCP ${PORT} 端口！${NC}"
         fi
     else
-        echo -e "${RED}❌ 启动失败，请检查端口是否冲突。${NC}"
+        echo -e "${RED}❌ 启动失败，请运行 'journalctl -u sing-box -n 20' 查看具体报错日志。${NC}"
     fi
     exit 0
 }
@@ -157,9 +176,9 @@ EOF
 # ==========================================
 clear
 echo -e "${GREEN}=====================================${NC}"
-echo -e "${GREEN}=== Sing-box VLESS-Reality 极速版 ===${NC}"
+echo -e "${GREEN}=== Sing-box VLESS-Reality 管理脚本 ===${NC}"
 echo -e "${GREEN}=====================================${NC}"
-echo -e " 1. 部署/覆盖安装 VLESS-Reality 节点"
+echo -e " 1. 部署/重置 VLESS-Reality 节点"
 echo -e " 2. ${RED}彻底卸载节点及清理配置${NC}"
 echo -e " 0. 退出脚本"
 echo -e "${GREEN}=====================================${NC}"
